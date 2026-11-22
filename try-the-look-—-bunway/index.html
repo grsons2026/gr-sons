@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#09090b" />
+    <title>Try the Look — Runway</title>
+    <meta
+      name="description"
+      content="Six looks, styled head to toe. Explore the runway, isolate a look, and tap a pin to see the piece."
+    />
+    <meta property="og:title" content="Try the Look — Runway" />
+    <meta
+      property="og:description"
+      content="Six looks, styled head to toe. Explore the runway, isolate a look, and tap a pin to see the piece."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="/src/assets/images/luxury_atelier_hero_1795019587863.jpg"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="https://reel-ref-try-the-look.vercel.app/assets/model-1-640.webp"
+      fetchpriority="low"
+    />
+  </head>
+  <body>
+    <div id="root">
+      <header class="site-header shopify-section-group-header-group">
+        <a href="./" class="brand" aria-label="GR SON'S home">
+          <img
+            id="header-brand-logo"
+            data-brand-logo
+            src="/assets/aistudio/image_a1e9073b_a8b2c1b6.jpg"
+            alt="GR SON'S"
+          />
+        </a>
+        <div class="site-header-actions">
+          <button
+            id="header-search-toggle"
+            type="button"
+            class="header-icon-btn"
+            aria-label="Search collection"
+            aria-expanded="false"
+            aria-controls="header-search-panel"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7.5" />
+              <path d="M20 20l-4.2-4.2" />
+            </svg>
+          </button>
+          <button id="open-bag" type="button" aria-label="Open shopping bag drawer">
+            <svg
+              width="22"
+              height="24"
+              viewBox="0 0 24 26"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.3"
+              aria-hidden="true"
+            >
+              <path d="M4 8h16l1 16H3L4 8zM8 8V6a4 4 0 0 1 8 0v2" />
+            </svg>
+            <span class="bag-badge" data-cart-count>0</span>
+          </button>
+        </div>
+      </header>
+
+      <div id="header-search-panel" class="header-search-panel" hidden>
+        <div class="store-search">
+          <svg class="store-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <circle cx="11" cy="11" r="7.5" />
+            <path d="M20 20l-4.2-4.2" />
+          </svg>
+          <input
+            id="store-search-input"
+            type="search"
+            placeholder="Search shirts, waistcoats, blazers, trousers, shoes..."
+            aria-label="Search storefront catalog"
+            autocomplete="off"
+          />
+          <button type="button" id="store-search-clear" class="store-search-clear" aria-label="Clear search" hidden>×</button>
+        </div>
+      </div>
+
+      <main>
+
+        <runway-section
+          id="Runway-template--28035983671601__the_runway_wdM8BG"
+          class="rw rw--add-icon rw--popup rw--list has-dividers has-border"
+          data-feel="balanced"
+          data-blur="true"
+          data-mblur="true"
+          data-style="ring"
+          data-mstyle="classic"
+          data-fit="true"
+          data-height-mode="original"
+          data-height-vh="100"
+          data-mheight-mode="custom"
+          data-mheight-vh="109"
+          data-reflect="false"
+          data-autoplay="true"
+          data-speed="5000"
+          data-after-add="stay"
+          data-bundle-code=""
+          data-msg-choose="Pick a size for: [items]"
+          data-msg-error="Couldn’t add to bag. Please try again."
+          data-msg-soldout="Sold out"
+          style="
+            --rw-c-stage: #f4f2ee;
+            --rw-c-panel: #ffffff;
+            --rw-c-text: #151413;
+            --rw-c-muted: #66625c;
+            --rw-c-accent: #0e0e0e;
+            --rw-c-on-accent: #ffffff;
+            --rw-c-line: #c8c8c8;
+            --rw-card: #DFDFDF;
+            --rw-hf: var(--font-heading--family, inherit);
+            --rw-hw: 400;
+            --rw-h-d: 46px;
+            --rw-h-m: 24px;
+            --rw-sub-d: 12px;
+            --rw-sub-m: 12px;
+            --rw-eyebrow-d: 11px;
+            --rw-eyebrow-m: 10px;
+            --rw-label-d: 10px;
+            --rw-label-m: 9px;
+            --rw-chip-d: 17px;
+            --rw-chip-m: 18px;
+            --rw-ph-d: 18px;
+            --rw-ph-m: 16px;
+            --rw-pt-size-d: 13px;
+            --rw-pt-size-m: 12px;
+            --rw-price-d: 12px;
+            --rw-price-m: 12px;
+            --rw-opt-d: 11px;
+            --rw-opt-m: 11px;
+            --rw-total-d: 16px;
+            --rw-total-m: 16px;
+            --rw-thumb-d: 92px;
+            --rw-thumb-m: 62px;
+            --rw-tag-top: 18px;
+            --rw-tag-left: 0px;
+            --rw-thumb-radius: 0px;
+            --rw-morph: 900ms;
+            --rw-bar-r: 20px;
+            --rw-panel-w: 380px;
+            --rw-panel-pad-d: 32px;
+            --rw-radius: 0px;
+            --rw-max: none;
+            --rw-speed: 5s;
+            --rw-ax: 40%;
+            --rw-btn-radius: 0px;
+            --rw-pill-radius: 30px;
+            --rw-add-radius: 20px;
+          "
+        ></runway-section>
+
+        <section id="catalog-showcase" class="catalog-showcase" aria-labelledby="catalog-heading">
+          <div class="catalog-shell">
+            <div class="catalog-head">
+              <div class="catalog-title-group">
+                <span class="catalog-eyebrow">Atelier &amp; Runway Collection</span>
+                <div class="catalog-title-row">
+                  <h2 id="catalog-heading" class="catalog-heading" data-catalog-heading>All Products</h2>
+                  <span class="catalog-count" data-catalog-count>21 pieces</span>
+                </div>
+              </div>
+              <button type="button" class="catalog-back-btn" data-catalog-top>
+                ↑ Back to Top
+              </button>
+            </div>
+
+            <div class="catalog-controls">
+              <div class="store-cats" role="tablist" aria-label="Collection categories">
+                <button type="button" class="store-cat-btn" data-store-cat="all" role="tab" aria-selected="true">All</button>
+                <button type="button" class="store-cat-btn" data-store-cat="waistcoats-coats" role="tab" aria-selected="false">Waistcoats &amp; Coats</button>
+                <button type="button" class="store-cat-btn" data-store-cat="trousers" role="tab" aria-selected="false">Trousers</button>
+                <button type="button" class="store-cat-btn" data-store-cat="shirts" role="tab" aria-selected="false">Shirts</button>
+                <button type="button" class="store-cat-btn" data-store-cat="shoes" role="tab" aria-selected="false">Shoes</button>
+              </div>
+              <div class="catalog-search-wrap">
+                <svg class="store-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7.5" />
+                  <path d="M20 20l-4.2-4.2" />
+                </svg>
+                <input
+                  type="search"
+                  class="catalog-search-input"
+                  data-catalog-search
+                  placeholder="Filter by garment, fabric, or look..."
+                  aria-label="Filter collection grid"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+
+            <div class="catalog-stage" data-catalog-stage>
+              <ul class="catalog-grid" role="list" data-catalog-grid></ul>
+              <div class="catalog-mobile-rows" data-catalog-mobile-rows hidden></div>
+            </div>
+
+            <div class="catalog-empty" data-catalog-empty hidden>
+              <p>No garments match your current filter.</p>
+              <button type="button" class="rw__filter-reset" data-catalog-reset>Show All 21 Products</button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <dialog id="bag-dialog" class="bag-drawer" aria-labelledby="bag-dialog-title">
+        <div class="bag-drawer-inner">
+          <div class="bag-heading">
+            <div class="bag-title-wrap">
+              <h2 id="bag-dialog-title">Shopping Bag</h2>
+              <span class="bag-count-label"><span data-cart-count>0</span> items</span>
+            </div>
+            <button id="close-bag" type="button" aria-label="Close shopping bag">×</button>
+          </div>
+
+          <div class="bag-ship-bar" data-bag-ship-bar>
+            <p class="bag-ship-text" data-bag-ship-text>Complimentary Express Courier on orders over PKR 25,000</p>
+            <div class="bag-ship-track" aria-hidden="true">
+              <div class="bag-ship-fill" data-bag-ship-fill></div>
+            </div>
+          </div>
+
+          <div id="bag-items" class="bag-items"></div>
+
+          <div id="bag-summary" class="bag-summary" hidden>
+            <div class="bag-summary-row">
+              <span>Subtotal</span>
+              <span id="bag-subtotal">PKR 0</span>
+            </div>
+            <div class="bag-summary-row">
+              <span>Express Delivery</span>
+              <span id="bag-delivery">Complimentary</span>
+            </div>
+            <div class="bag-summary-row bag-summary-total">
+              <span>Total (Cash on Delivery)</span>
+              <strong id="bag-total">PKR 0</strong>
+            </div>
+          </div>
+
+          <form id="cod-checkout-form" class="cod-form" novalidate hidden>
+            <div class="cod-head">
+              <h3>Cash on Delivery Checkout</h3>
+              <span class="cod-method">Pay in cash upon delivery</span>
+            </div>
+            <label class="cod-field">
+              <span>Full Name</span>
+              <input id="cod-name" type="text" name="name" placeholder="e.g. Alexander Sterling" autocomplete="name" required />
+            </label>
+            <label class="cod-field">
+              <span>Phone Number</span>
+              <input id="cod-phone" type="tel" name="phone" placeholder="e.g. +1 (555) 234-8910" autocomplete="tel" required />
+            </label>
+            <label class="cod-field">
+              <span>Delivery Address &amp; Postal Code</span>
+              <textarea id="cod-address" name="address" rows="2" placeholder="Street address, apartment/suite, city, postal code" autocomplete="street-address" required></textarea>
+            </label>
+            <p id="cod-error" class="cod-error" role="alert" aria-live="polite"></p>
+            <button type="submit" id="cod-submit" class="cod-submit">Place Cash on Delivery Order</button>
+          </form>
+
+          <div id="cod-confirmation" class="cod-confirmation" hidden>
+            <div class="cod-confirm-badge">Order Confirmed</div>
+            <h3 id="cod-order-number">Order #NK-4821 Confirmed — Preparing Shipment</h3>
+            <p id="cod-order-meta" class="cod-order-meta"></p>
+            <div id="cod-order-receipt" class="cod-order-receipt"></div>
+            <button type="button" id="cod-continue" class="cod-submit">Continue Shopping</button>
+          </div>
+
+          <div class="bag-footer-actions">
+            <button id="export-bag" type="button">Download outfit shortlist</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="quickview-dialog" class="qv-dialog" aria-labelledby="qv-title">
+        <div class="qv-layout">
+          <div class="qv-media">
+            <span class="qv-tag" data-qv-tag hidden>
+              <span class="qv-tag-text" data-qv-tag-text></span>
+            </span>
+            <img data-qv-img src="" alt="" loading="lazy" decoding="async" />
+          </div>
+          <div class="qv-body">
+            <div class="qv-head">
+              <span class="qv-kicker" data-qv-kicker>Quick View</span>
+              <button
+                type="button"
+                class="qv-close"
+                data-qv-close
+                aria-label="Close Quick View"
+              >
+                ×
+              </button>
+            </div>
+            <div class="qv-title-row">
+              <h2 id="qv-title" class="qv-title" data-qv-title></h2>
+              <p class="qv-price" data-qv-price></p>
+            </div>
+            <p class="qv-look" data-qv-look></p>
+            <div class="qv-rule"></div>
+            <fieldset class="qv-opt">
+              <div class="qv-opt-head">
+                <legend class="qv-legend" data-qv-legend>Size</legend>
+                <button type="button" class="qv-sizeguide-btn" data-qv-sizeguide>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path d="M2 8h20v8H2zM6 8v4M10 8v3M14 8v4M18 8v3" />
+                  </svg>
+                  <span>Size Guide (S, M, L, XL)</span>
+                </button>
+              </div>
+              <div class="rw__pills qv-pills" data-qv-pills></div>
+            </fieldset>
+            <p class="qv-msg" data-qv-msg role="status" aria-live="polite"></p>
+            <div class="qv-actions">
+              <button type="button" class="qv-cta" data-qv-add>
+                <span data-qv-add-label>Add to bag</span>
+              </button>
+              <button type="button" class="qv-bag-link" data-qv-open-bag>
+                Open shopping bag (<span data-cart-count>0</span>)
+              </button>
+            </div>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="sizeguide-dialog" class="sg-dialog" aria-labelledby="sg-title">
+        <div class="sg-inner">
+          <div class="sg-head">
+            <div>
+              <span class="sg-kicker">Atelier Fit &amp; Measurements</span>
+              <h2 id="sg-title" class="sg-title">Size Guide (S, M, L, XL)</h2>
+            </div>
+            <button type="button" class="sg-close" data-sg-close aria-label="Close Size Guide">×</button>
+          </div>
+
+          <div class="sg-tabs" role="tablist" aria-label="Size categories">
+            <button type="button" class="sg-tab" data-sg-tab="apparel" role="tab" aria-selected="true">Shirts, Waistcoats &amp; Coats (S–XL)</button>
+            <button type="button" class="sg-tab" data-sg-tab="trousers" role="tab" aria-selected="false">Trousers (28–34)</button>
+            <button type="button" class="sg-tab" data-sg-tab="shoes" role="tab" aria-selected="false">Shoes (EU 40–46)</button>
+          </div>
+
+          <div class="sg-panel" data-sg-panel="apparel">
+            <table class="sg-table">
+              <thead>
+                <tr>
+                  <th>Size</th>
+                  <th>Chest</th>
+                  <th>Shoulder</th>
+                  <th>Sleeve</th>
+                  <th>Waist</th>
+                  <th>Length</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>S</strong></td>
+                  <td>36–38 in · 91–97 cm</td>
+                  <td>17.3 in · 44 cm</td>
+                  <td>24.4 in · 62 cm</td>
+                  <td>29–31 in</td>
+                  <td>28.3 in · 72 cm</td>
+                </tr>
+                <tr>
+                  <td><strong>M</strong></td>
+                  <td>39–41 in · 99–104 cm</td>
+                  <td>18.1 in · 46 cm</td>
+                  <td>25.2 in · 64 cm</td>
+                  <td>31–33 in</td>
+                  <td>29.1 in · 74 cm</td>
+                </tr>
+                <tr>
+                  <td><strong>L</strong></td>
+                  <td>42–44 in · 107–112 cm</td>
+                  <td>18.9 in · 48 cm</td>
+                  <td>26.0 in · 66 cm</td>
+                  <td>33–35 in</td>
+                  <td>29.9 in · 76 cm</td>
+                </tr>
+                <tr>
+                  <td><strong>XL</strong></td>
+                  <td>45–47 in · 114–119 cm</td>
+                  <td>19.7 in · 50 cm</td>
+                  <td>26.8 in · 68 cm</td>
+                  <td>36–38 in</td>
+                  <td>30.7 in · 78 cm</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="sg-panel" data-sg-panel="trousers" hidden>
+            <table class="sg-table">
+              <thead>
+                <tr>
+                  <th>Waist Size</th>
+                  <th>Waist</th>
+                  <th>Hip</th>
+                  <th>Inseam</th>
+                  <th>Leg Opening</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>28</strong></td>
+                  <td>29.0 in · 74 cm</td>
+                  <td>38.5 in · 98 cm</td>
+                  <td>31.0 in · 79 cm</td>
+                  <td>8.7 in · 22 cm</td>
+                </tr>
+                <tr>
+                  <td><strong>30</strong></td>
+                  <td>31.0 in · 79 cm</td>
+                  <td>40.5 in · 103 cm</td>
+                  <td>31.5 in · 80 cm</td>
+                  <td>9.0 in · 23 cm</td>
+                </tr>
+                <tr>
+                  <td><strong>32</strong></td>
+                  <td>33.0 in · 84 cm</td>
+                  <td>42.5 in · 108 cm</td>
+                  <td>32.0 in · 81 cm</td>
+                  <td>9.4 in · 24 cm</td>
+                </tr>
+                <tr>
+                  <td><strong>34</strong></td>
+                  <td>35.0 in · 89 cm</td>
+                  <td>44.5 in · 113 cm</td>
+                  <td>32.5 in · 83 cm</td>
+                  <td>9.8 in · 25 cm</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="sg-panel" data-sg-panel="shoes" hidden>
+            <table class="sg-table">
+              <thead>
+                <tr>
+                  <th>EU Size</th>
+                  <th>US Men</th>
+                  <th>UK</th>
+                  <th>Foot Length</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><strong>40</strong></td><td>7</td><td>6</td><td>25.0 cm</td></tr>
+                <tr><td><strong>41</strong></td><td>8</td><td>7</td><td>26.0 cm</td></tr>
+                <tr><td><strong>42</strong></td><td>8.5</td><td>7.5</td><td>26.5 cm</td></tr>
+                <tr><td><strong>43</strong></td><td>9.5</td><td>8.5</td><td>27.5 cm</td></tr>
+                <tr><td><strong>44</strong></td><td>10</td><td>9</td><td>28.0 cm</td></tr>
+                <tr><td><strong>45</strong></td><td>11</td><td>10</td><td>29.0 cm</td></tr>
+                <tr><td><strong>46</strong></td><td>12</td><td>11</td><td>30.0 cm</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="sg-note">Tailored garments cut to modern proportions. Between sizes, choose the larger size for layered waistcoat and blazer comfort.</p>
+        </div>
+      </dialog>
+
+      <footer class="site-footer">
+        <div class="site-footer-inner">
+          <div class="site-footer-brand">
+            <img
+              id="footer-brand-logo"
+              class="site-footer-logo"
+              data-brand-logo
+              src="/assets/aistudio/image_a1e9073b_a8b2c1b6.jpg"
+              alt="GR SON'S"
+            />
+            <span class="site-footer-eyebrow">Flagship Atelier · Runway Menswear</span>
+            <p class="site-footer-copy">Bespoke tailoring, 3D runway curation, and Cash on Delivery nationwide in PKR.</p>
+          </div>
+          <div class="site-footer-actions">
+            <button type="button" id="open-admin-panel" class="admin-footer-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              <span>Admin Panel</span>
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      <dialog id="admin-pin-dialog" class="admin-pin-dialog" aria-labelledby="admin-pin-title">
+        <form id="admin-pin-form" class="admin-pin-inner" novalidate>
+          <div class="admin-pin-head">
+            <div>
+              <span class="adm-eyebrow">Store Owner Access</span>
+              <h2 id="admin-pin-title">Unlock Seller Dashboard</h2>
+            </div>
+            <button type="button" id="admin-pin-close" class="admin-close-btn" aria-label="Close PIN prompt">×</button>
+          </div>
+          <p class="admin-pin-desc">Enter your owner PIN (default PIN: <strong>1234</strong>) to edit PKR pricing, banner, runway models, and catalog photos.</p>
+          <div class="admin-pin-field">
+            <label for="admin-pin-input">Owner PIN</label>
+            <div class="admin-pin-input-row">
+              <input
+                id="admin-pin-input"
+                type="password"
+                inputmode="numeric"
+                autocomplete="current-password"
+                placeholder="Enter PIN (1234)"
+                required
+              />
+              <button type="button" id="admin-pin-toggle" class="admin-pin-toggle">Show</button>
+            </div>
+          </div>
+          <p id="admin-pin-error" class="admin-pin-error" role="alert" aria-live="polite"></p>
+          <button type="submit" class="adm-btn-gold admin-pin-submit">Unlock Dashboard</button>
+        </form>
+      </dialog>
+
+      <dialog id="admin-dashboard-dialog" class="admin-dashboard-dialog" aria-labelledby="admin-dashboard-title">
+        <div class="adm-shell">
+          <header class="adm-topbar">
+            <div class="adm-topbar-left">
+              <span class="adm-eyebrow">Store Owner / Seller Admin Dashboard</span>
+              <h2 id="admin-dashboard-title">Atelier Catalog &amp; Runway Control</h2>
+            </div>
+            <div class="adm-topbar-actions">
+              <button type="button" id="admin-save-all" class="adm-btn-gold">Save All Changes</button>
+              <button type="button" id="admin-reset-all" class="adm-btn-danger-outline">Reset to Default</button>
+              <button type="button" id="admin-close-only" class="adm-btn-secondary">Preview Store</button>
+              <button type="button" id="admin-lock-close" class="admin-close-btn" aria-label="Lock and close Admin Panel">×</button>
+            </div>
+          </header>
+
+          <div id="admin-status-bar" class="adm-status-bar" role="status" aria-live="polite">
+            100% Free Local Store Manager · Click Save All Changes to persist
+          </div>
+
+          <nav class="adm-tabs" role="tablist" aria-label="Store Owner Management Tabs">
+            <button type="button" class="adm-tab" data-admin-tab="products" role="tab" aria-selected="true">
+              1. Products &amp; Prices (PKR)
+            </button>
+            <button type="button" class="adm-tab" data-admin-tab="banner" role="tab" aria-selected="false">
+              2. Main Hero Banner
+            </button>
+            <button type="button" class="adm-tab" data-admin-tab="runway" role="tab" aria-selected="false">
+              3. 3D Runway &amp; 'In This Look'
+            </button>
+          </nav>
+
+          <div id="admin-dashboard-body" class="adm-body"></div>
+        </div>
+      </dialog>
+
+      <div id="bag-status" role="status" aria-live="polite"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
