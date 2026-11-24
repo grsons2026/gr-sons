@@ -115,31 +115,71 @@ export async function readOriginalImageFile(file: File): Promise<string> {
   });
 }
 
-function encodeTransparentCanvas(canvas: HTMLCanvasElement, quality = 0.85): string {
-  try {
-    const webp = canvas.toDataURL('image/webp', quality);
-    if (webp.startsWith('data:image/webp')) {
-      return webp;
-    }
-  } catch {
-    // fallback to png
+const MAX_CLOUD_IMAGE_CHARS = 45 * 1024;
+
+function encodeJpegCanvasUnderLimit(
+  srcCanvas: HTMLCanvasElement,
+  maxWidth = 700,
+  initialQuality = 0.65,
+  maxChars = MAX_CLOUD_IMAGE_CHARS,
+  fillBg = '#ffffff'
+): string {
+  const natW = Math.max(1, srcCanvas.width);
+  const natH = Math.max(1, srcCanvas.height);
+  const baseScale = Math.min(1, maxWidth / natW, 2000 / Math.max(1, natH));
+  let curW = Math.max(1, Math.round(natW * baseScale));
+  let curH = Math.max(1, Math.round(natH * baseScale));
+
+  const work = document.createElement('canvas');
+  const ctx = work.getContext('2d');
+  if (!ctx) return srcCanvas.toDataURL('image/jpeg', initialQuality);
+
+  const renderJpeg = (w: number, h: number, q: number): string => {
+    work.width = w;
+    work.height = h;
+    ctx.fillStyle = fillBg;
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(srcCanvas, 0, 0, w, h);
+    return work.toDataURL('image/jpeg', q);
+  };
+
+  let best = renderJpeg(curW, curH, initialQuality);
+  if (best.length <= maxChars) return best;
+
+  const qualities = [0.58, 0.5, 0.42, 0.34, 0.26];
+  for (const q of qualities) {
+    best = renderJpeg(curW, curH, q);
+    if (best.length <= maxChars) return best;
   }
-  return canvas.toDataURL('image/png');
+
+  for (let pass = 0; pass < 4 && best.length > maxChars; pass++) {
+    curW = Math.max(240, Math.round(curW * 0.8));
+    curH = Math.max(180, Math.round(curH * 0.8));
+    for (const q of [0.6, 0.5, 0.4, 0.3]) {
+      best = renderJpeg(curW, curH, q);
+      if (best.length <= maxChars) return best;
+    }
+  }
+
+  return best;
 }
 
-function encodeOpaqueCanvas(canvas: HTMLCanvasElement, quality = 0.85): string {
+function encodeTransparentCanvas(canvas: HTMLCanvasElement, quality = 0.65): string {
   try {
-    const webp = canvas.toDataURL('image/webp', quality);
-    if (webp.startsWith('data:image/webp')) {
-      return webp;
+    const qualities = [quality, 0.55, 0.45, 0.35];
+    for (const q of qualities) {
+      const webp = canvas.toDataURL('image/webp', q);
+      if (webp.startsWith('data:image/webp') && webp.length <= MAX_CLOUD_IMAGE_CHARS) {
+        return webp;
+      }
     }
   } catch {
-    // fallback to jpeg
+    // fallback to JPEG compression under 45KB
   }
-  return canvas.toDataURL('image/jpeg', quality);
+  return encodeJpegCanvasUnderLimit(canvas, 700, 0.65, MAX_CLOUD_IMAGE_CHARS, '#ffffff');
 }
 
-function trimTransparentCanvas(srcCanvas: HTMLCanvasElement, quality = 0.85): string {
+function trimTransparentCanvas(srcCanvas: HTMLCanvasElement, quality = 0.65): string {
   const w = srcCanvas.width;
   const h = srcCanvas.height;
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
@@ -218,9 +258,9 @@ function trimTransparentCanvas(srcCanvas: HTMLCanvasElement, quality = 0.85): st
 
 export async function removeBackgroundCanvasBFS(
   file: File,
-  maxWidth = 900,
+  maxWidth = 700,
   tolerance = 14,
-  quality = 0.85
+  quality = 0.65
 ): Promise<string> {
   const dataUrl = await readOriginalImageFile(file);
   if (typeof document === 'undefined') return dataUrl;
@@ -533,7 +573,7 @@ export async function removeBackgroundCanvasBFS(
   });
 }
 
-export async function compressImageFile(file: File, maxWidth = 900, quality = 0.85): Promise<string> {
+export async function compressImageFile(file: File, maxWidth = 700, quality = 0.65): Promise<string> {
   const dataUrl = await readOriginalImageFile(file);
   if (typeof document === 'undefined') return dataUrl;
 
@@ -542,11 +582,8 @@ export async function compressImageFile(file: File, maxWidth = 900, quality = 0.
     img.onload = () => {
       const natW = img.naturalWidth || 1;
       const natH = img.naturalHeight || 1;
-      if (natW <= maxWidth && file.size <= 35 * 1024) {
-        resolve(dataUrl);
-        return;
-      }
-      const scale = Math.min(1, maxWidth / natW, 2000 / Math.max(1, natH));
+      const targetMaxW = Math.min(700, maxWidth);
+      const scale = Math.min(1, targetMaxW / natW, 2000 / Math.max(1, natH));
       const w = Math.max(1, Math.round(natW * scale));
       const h = Math.max(1, Math.round(natH * scale));
       const canvas = document.createElement('canvas');
@@ -557,13 +594,10 @@ export async function compressImageFile(file: File, maxWidth = 900, quality = 0.
         resolve(dataUrl);
         return;
       }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
-      const hasAlphaType = file.type === 'image/png' || file.type === 'image/webp' || file.type === 'image/gif';
-      resolve(
-        hasAlphaType
-          ? encodeTransparentCanvas(canvas, quality)
-          : encodeOpaqueCanvas(canvas, quality)
-      );
+      resolve(encodeJpegCanvasUnderLimit(canvas, targetMaxW, Math.min(0.65, quality), MAX_CLOUD_IMAGE_CHARS, '#ffffff'));
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -595,7 +629,20 @@ class StoreStateManager {
       const rawSync = window.localStorage.getItem(CLOUD_SYNC_STORAGE_KEY);
       if (rawSync) {
         const parsed = JSON.parse(rawSync) as Partial<CloudSyncConfig>;
-        this.cloudSync = { ...cloneDeep(DEFAULT_CLOUD_SYNC), ...parsed };
+        const storedEndpoint = parsed.endpointUrl?.trim() || '';
+        const normalizedEndpoint = storedEndpoint.replace(/\/+$/, '');
+        const resolvedEndpoint =
+          !normalizedEndpoint ||
+          normalizedEndpoint === 'https://jsonbin.io' ||
+          normalizedEndpoint === 'https://api.jsonbin.io'
+            ? DEFAULT_CLOUD_SYNC.endpointUrl
+            : storedEndpoint;
+        this.cloudSync = {
+          ...cloneDeep(DEFAULT_CLOUD_SYNC),
+          ...parsed,
+          endpointUrl: resolvedEndpoint,
+          apiKey: parsed.apiKey?.trim() || DEFAULT_CLOUD_SYNC.apiKey,
+        };
       }
     } catch {
       // ignore
@@ -948,13 +995,37 @@ class StoreStateManager {
         }
       }
       const payload = this.buildPublicSnapshot();
-      const res = await fetch(endpoint, {
-        method: 'PUT',
+      const normalized = endpoint.replace(/\/+$/, '');
+      const isBareJsonBinOrigin =
+        normalized === 'https://jsonbin.io' || normalized === 'https://api.jsonbin.io';
+      const targetUrl = isBareJsonBinOrigin ? 'https://api.jsonbin.io/v3/b' : endpoint;
+      const method = isBareJsonBinOrigin ? 'POST' : 'PUT';
+
+      const res = await fetch(targetUrl, {
+        method,
         headers,
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
         return { ok: false, message: `Cloud sync failed (HTTP ${res.status}). Check URL or access key.` };
+      }
+      if (isBareJsonBinOrigin) {
+        try {
+          const created = (await res.json()) as { metadata?: { id?: string } };
+          const binId = created?.metadata?.id;
+          if (binId) {
+            this.updateCloudSync({
+              endpointUrl: `https://api.jsonbin.io/v3/b/${binId}`,
+              lastSyncedAt: payload.updatedAt || new Date().toISOString(),
+            });
+            return {
+              ok: true,
+              message: `Created Cloud JSONBin & synced live config (${binId})!`,
+            };
+          }
+        } catch {
+          // ignore JSON parse failure on bin creation
+        }
       }
       this.updateCloudSync({ lastSyncedAt: payload.updatedAt || new Date().toISOString() });
       return { ok: true, message: 'Synced live store config globally to Cloud URL!' };

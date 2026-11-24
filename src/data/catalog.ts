@@ -213,8 +213,8 @@ export const DEFAULT_SHOWROOM: ShowroomConfig = {
 };
 
 export const DEFAULT_CLOUD_SYNC: CloudSyncConfig = {
-  endpointUrl: '',
-  apiKey: '',
+  endpointUrl: 'https://api.jsonbin.io/v3/b/6b05c4e7ac6210605aa14777',
+  apiKey: '$2a$10$hOO36v0BIb0dbgJyXdFiR.nOqF64lTz2D2oTpI6r.RLHsL6hwzmi.',
   autoSyncOnSave: true,
   lastSyncedAt: '',
 };

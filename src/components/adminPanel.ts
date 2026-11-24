@@ -264,15 +264,15 @@ export class AdminPanel {
       quality?: number;
     }
   ): Promise<{ url: string; usedBgCleaner: boolean; fallbackUsed: boolean }> {
-    const maxWidth = opts.maxDim ?? 900;
-    const quality = opts.quality ?? 0.85;
+    const maxWidth = opts.maxDim ?? 700;
+    const quality = opts.quality ?? 0.65;
 
     if (opts.skipAi) {
       const url = await compressImageFile(file, maxWidth, quality);
       return { url, usedBgCleaner: false, fallbackUsed: false };
     }
 
-    this.setAiBusy(opts.target, 'Removing Background...');
+    this.setAiBusy(opts.target, 'Compressing & Removing Background...');
     try {
       const url = await removeBackgroundCanvasBFS(file, maxWidth, 14, quality);
       return { url, usedBgCleaner: true, fallbackUsed: false };
@@ -533,8 +533,8 @@ export class AdminPanel {
       const result = await this.processUploadedImage(file, {
         target: 'new-product',
         skipAi: this.skipProductBgRemoval,
-        maxDim: 900,
-        quality: 0.85,
+        maxDim: 700,
+        quality: 0.65,
       });
       this.newProductPhoto = result.url;
       const stage = document.getElementById('adm-new-preview-stage');
@@ -642,8 +642,8 @@ export class AdminPanel {
         const result = await this.processUploadedImage(file, {
           target: `prod-${id}`,
           skipAi: this.skipProductBgRemoval,
-          maxDim: 900,
-          quality: 0.85,
+          maxDim: 700,
+          quality: 0.65,
         });
         storeState.updateProduct(id, { image: result.url });
         this.showStatus(
@@ -810,9 +810,9 @@ export class AdminPanel {
         const file = inp.files?.[0];
         if (!file) return;
         inp.value = '';
-        const compressed = await compressImageFile(file, 1400, 0.86);
+        const compressed = await compressImageFile(file, 700, 0.65);
         storeState.updateHeroSlide(idx, { image: compressed });
-        this.showStatus(`Updated Hero Slide ${idx + 1} photo live.`);
+        this.showStatus(`Compressed & updated Hero Slide ${idx + 1} photo cleanly (<45KB).`);
       });
     });
 
@@ -1227,16 +1227,16 @@ export class AdminPanel {
       const result = await this.processUploadedImage(file, {
         target: 'runway-model',
         skipAi: this.skipRunwayBgRemoval,
-        maxDim: 900,
-        quality: 0.85,
+        maxDim: 700,
+        quality: 0.65,
       });
       storeState.updateLookModelImage(targetIdx, result.url);
       this.showStatus(
         result.usedBgCleaner
-          ? `Transparent cutout & auto-trim ready (900px) — Runway Model ${targetIdx + 1} updated cleanly!`
+          ? `Transparent cutout compressed (700px, <45KB) — Runway Model ${targetIdx + 1} updated cleanly!`
           : result.fallbackUsed
-            ? `Uploaded compressed model photo for Runway Model ${targetIdx + 1}.`
-            : `Compressed & uploaded model photo as-is for Runway Model ${targetIdx + 1}.`
+            ? `Uploaded compressed JPEG model photo (<45KB) for Runway Model ${targetIdx + 1}.`
+            : `Compressed & uploaded model photo (<45KB) for Runway Model ${targetIdx + 1}.`
       );
     });
 
@@ -1338,16 +1338,16 @@ export class AdminPanel {
         const result = await this.processUploadedImage(file, {
           target: `piece-${pieceNum}`,
           skipAi: this.skipRunwayBgRemoval,
-          maxDim: 900,
-          quality: 0.85,
+          maxDim: 700,
+          quality: 0.65,
         });
         storeState.updateLookPieceCustomItem(this.selectedRunwayLookIdx, pieceNum, {
           image: result.url,
         });
         this.showStatus(
           result.usedBgCleaner
-            ? `Replaced Piece 0${pieceNum} photo cleanly (900px + transparent cutout)!`
-            : `Compressed & replaced Piece 0${pieceNum} photo live.`
+            ? `Replaced Piece 0${pieceNum} photo cleanly (700px, <45KB)!`
+            : `Compressed & replaced Piece 0${pieceNum} photo live (<45KB).`
         );
       });
     });
