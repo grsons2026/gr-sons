@@ -88,7 +88,7 @@ export class AdminPanel {
         this.openEntry();
         return;
       }
-      if (this.logoTapCount === 1) {
+      if (this.logoTapCount === 1 && window.scrollY > 40) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
       this.logoTapResetTimer = window.setTimeout(() => {
@@ -119,6 +119,10 @@ export class AdminPanel {
       }
     });
 
+    this.pinDialog?.addEventListener('close', () => {
+      this.pinDialog?.remove();
+    });
+
     this.pinForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       this.handlePinSubmit();
@@ -143,7 +147,7 @@ export class AdminPanel {
     this.saveBtnEl?.addEventListener('click', () => void this.handleSaveAll());
     this.resetBtnEl?.addEventListener('click', () => void this.handleResetAll());
 
-    document.querySelectorAll<HTMLButtonElement>('[data-admin-tab]').forEach((btn) => {
+    this.dashboardDialog?.querySelectorAll<HTMLButtonElement>('[data-admin-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const tab = (btn.dataset.adminTab || 'products') as AdminTabId;
         this.activeTab = tab;
@@ -159,21 +163,30 @@ export class AdminPanel {
       }
     });
     this.syncPendingBadge();
+
+    if (this.pinDialog && !this.pinDialog.open) {
+      this.pinDialog.remove();
+    }
+    if (this.dashboardDialog && this.dashboardDialog.hidden) {
+      this.dashboardDialog.remove();
+    }
   }
 
   private isDashboardOpen(): boolean {
-    return Boolean(this.dashboardDialog && !this.dashboardDialog.hidden);
+    return Boolean(this.dashboardDialog && this.dashboardDialog.isConnected && !this.dashboardDialog.hidden);
   }
 
   private closeDashboard(): void {
-    if (!this.dashboardDialog || this.dashboardDialog.hidden) return;
+    if (!this.dashboardDialog) return;
     this.dashboardDialog.hidden = true;
+    this.dashboardDialog.remove();
     document.documentElement.classList.remove('admin-open');
   }
 
   private syncPendingBadge(): void {
     const pendingCount = storeState.getOrders().filter((o) => o.status === 'Pending').length;
-    document.querySelectorAll<HTMLElement>('[data-admin-pending-count]').forEach((el) => {
+    const root: ParentNode = this.dashboardDialog || document;
+    root.querySelectorAll<HTMLElement>('[data-admin-pending-count]').forEach((el) => {
       el.textContent = String(pendingCount);
       el.hidden = pendingCount === 0;
     });
@@ -195,11 +208,16 @@ export class AdminPanel {
       this.pinInput.value = '';
       this.pinInput.type = 'password';
     }
-    const toggleBtn = document.getElementById('admin-pin-toggle');
+    const toggleBtn = this.pinDialog?.querySelector<HTMLElement>('#admin-pin-toggle');
     if (toggleBtn) toggleBtn.textContent = 'Show';
-    if (this.pinDialog && !this.pinDialog.open) {
-      this.pinDialog.showModal();
-      window.setTimeout(() => this.pinInput?.focus(), 40);
+    if (this.pinDialog) {
+      if (!this.pinDialog.isConnected) {
+        document.body.appendChild(this.pinDialog);
+      }
+      if (!this.pinDialog.open) {
+        this.pinDialog.showModal();
+        window.setTimeout(() => this.pinInput?.focus(), 40);
+      }
     }
   }
 
@@ -219,6 +237,9 @@ export class AdminPanel {
   }
 
   private openDashboard(): void {
+    if (this.dashboardDialog && !this.dashboardDialog.isConnected) {
+      document.body.appendChild(this.dashboardDialog);
+    }
     this.syncTabButtons();
     this.renderActiveTab();
     if (this.dashboardDialog) {
@@ -229,7 +250,8 @@ export class AdminPanel {
   }
 
   private syncTabButtons(): void {
-    document.querySelectorAll<HTMLButtonElement>('[data-admin-tab]').forEach((btn) => {
+    const root: ParentNode = this.dashboardDialog || document;
+    root.querySelectorAll<HTMLButtonElement>('[data-admin-tab]').forEach((btn) => {
       const active = btn.dataset.adminTab === this.activeTab;
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
@@ -301,7 +323,7 @@ export class AdminPanel {
 
     this.setAiBusy(opts.target, 'Compressing & Removing Background...');
     try {
-      const url = await removeBackgroundCanvasBFS(file, maxWidth, 14, quality, opts.maxChars);
+      const url = await removeBackgroundCanvasBFS(file, maxWidth, 24, quality, opts.maxChars);
       return { url, usedBgCleaner: true, fallbackUsed: false };
     } catch (err) {
       console.warn('Canvas flood-fill background removal fallback to compressed upload:', err);
@@ -801,7 +823,7 @@ export class AdminPanel {
       this.showStatus(
         this.skipProductBgRemoval
           ? 'Auto background removal paused — product uploads compress cleanly under 35KB.'
-          : 'Instant Canvas Flood-Fill background removal enabled — product cutouts float cleanly on #efece6.'
+          : 'Instant Canvas Flood-Fill background removal enabled — product cutouts float cleanly on #F5F3EE.'
       );
     });
 

@@ -197,18 +197,51 @@ function encodeTransparentCanvas(
   quality = 0.65,
   maxChars = MAX_CLOUD_IMAGE_CHARS
 ): string {
-  try {
+  const tryWebpOnCanvas = (c: HTMLCanvasElement): string | null => {
     const qualities = [quality, 0.55, 0.45, 0.35, 0.25];
     for (const q of qualities) {
-      const webp = canvas.toDataURL('image/webp', q);
+      const webp = c.toDataURL('image/webp', q);
       if (webp.startsWith('data:image/webp') && webp.length <= maxChars) {
         return webp;
       }
     }
+    return null;
+  };
+
+  try {
+    const direct = tryWebpOnCanvas(canvas);
+    if (direct) return direct;
+
+    // Progressively downscale transparent canvas so WebP alpha stays intact under maxChars
+    let curW = canvas.width;
+    let curH = canvas.height;
+    const probe = canvas.toDataURL('image/webp', 0.5);
+    if (probe.startsWith('data:image/webp')) {
+      const work = document.createElement('canvas');
+      const wCtx = work.getContext('2d');
+      if (wCtx) {
+        for (let pass = 0; pass < 5 && (curW > 200 || curH > 200); pass++) {
+          curW = Math.max(180, Math.round(curW * 0.82));
+          curH = Math.max(180, Math.round(curH * 0.82));
+          work.width = curW;
+          work.height = curH;
+          wCtx.clearRect(0, 0, curW, curH);
+          wCtx.drawImage(canvas, 0, 0, curW, curH);
+          const scaled = tryWebpOnCanvas(work);
+          if (scaled) return scaled;
+        }
+        return work.toDataURL('image/webp', 0.25);
+      }
+    }
+
+    const png = canvas.toDataURL('image/png');
+    if (png.startsWith('data:image/png') && png.length <= maxChars) {
+      return png;
+    }
   } catch {
-    // fallback to JPEG compression under limit
+    // fallback to warm-alabaster JPEG compression under limit
   }
-  return encodeJpegCanvasUnderLimit(canvas, maxChars <= 36000 ? 650 : 700, 0.62, maxChars, '#ffffff');
+  return encodeJpegCanvasUnderLimit(canvas, maxChars <= 36000 ? 650 : 700, 0.62, maxChars, '#F5F3EE');
 }
 
 function trimTransparentCanvas(
@@ -295,7 +328,7 @@ function trimTransparentCanvas(
 export async function removeBackgroundCanvasBFS(
   file: File,
   maxWidth = 700,
-  tolerance = 14,
+  tolerance = 24,
   quality = 0.65,
   maxChars = MAX_CLOUD_IMAGE_CHARS
 ): Promise<string> {
@@ -329,12 +362,18 @@ export async function removeBackgroundCanvasBFS(
         const origData = new Uint8ClampedArray(data);
         const n = w * h;
 
-        // 1. Sample background colors from the 4 outer corners
+        // 1. Sample background colors from the 4 corners + inset corner clusters
+        const insetX = Math.min(6, Math.max(1, Math.floor(w * 0.02)));
+        const insetY = Math.min(6, Math.max(1, Math.floor(h * 0.02)));
         const cornerCoords: [number, number][] = [
           [0, 0],
+          [insetX, insetY],
           [w - 1, 0],
+          [w - 1 - insetX, insetY],
           [0, h - 1],
+          [insetX, h - 1 - insetY],
           [w - 1, h - 1],
+          [w - 1 - insetX, h - 1 - insetY],
         ];
         const rawCorners: [number, number, number][] = [];
         for (const [cx, cy] of cornerCoords) {
@@ -346,6 +385,7 @@ export async function removeBackgroundCanvasBFS(
 
         // Keep corners consistent with median corner cluster
         let bgCorners: [number, number, number][] = rawCorners;
+        let isLightStudioBackdrop = false;
         if (rawCorners.length >= 3) {
           const medR = [...rawCorners].sort((a, b) => a[0] - b[0])[Math.floor(rawCorners.length / 2)][0];
           const medG = [...rawCorners].sort((a, b) => a[1] - b[1])[Math.floor(rawCorners.length / 2)][1];
@@ -354,14 +394,19 @@ export async function removeBackgroundCanvasBFS(
             const dr = r - medR;
             const dg = g - medG;
             const db = b - medB;
-            return dr * dr + dg * dg + db * db <= 36 * 36;
+            return dr * dr + dg * dg + db * db <= 44 * 44;
           });
           if (filtered.length > 0) {
             bgCorners = filtered;
           }
+          const minMed = Math.min(medR, medG, medB);
+          const satMed = Math.max(medR, medG, medB) - minMed;
+          isLightStudioBackdrop = minMed >= 205 && satMed <= 30;
         }
 
-        const tolSq = tolerance * tolerance;
+        const effectiveTol = isLightStudioBackdrop ? Math.max(tolerance, 28) : tolerance;
+        const tolSq = effectiveTol * effectiveTol;
+        const featherTolSq = (effectiveTol * 1.65) * (effectiveTol * 1.65);
 
         const minColorDistSq = (r: number, g: number, b: number): number => {
           if (bgCorners.length === 0) return 999999;
@@ -380,10 +425,19 @@ export async function removeBackgroundCanvasBFS(
         const isBgPixel = (pos: number): boolean => {
           const i = pos * 4;
           if (origData[i + 3] <= 12) return true;
-          return minColorDistSq(origData[i], origData[i + 1], origData[i + 2]) <= tolSq;
+          const r = origData[i];
+          const g = origData[i + 1];
+          const b = origData[i + 2];
+          if (minColorDistSq(r, g, b) <= tolSq) return true;
+          if (isLightStudioBackdrop) {
+            const minC = Math.min(r, g, b);
+            const maxC = Math.max(r, g, b);
+            if (minC >= 224 && maxC - minC <= 22) return true;
+          }
+          return false;
         };
 
-        // Pass 1: Strict outer-border BFS flood-fill (tolerance = 14)
+        // Pass 1: Outer-border BFS flood-fill
         const visited = new Uint8Array(n);
         const queue = new Int32Array(n);
         let head = 0;
@@ -549,10 +603,14 @@ export async function removeBackgroundCanvasBFS(
         }
 
         // Seal any enclosed transparent pixels back to solid opaque RGB (alpha = 255)
+        // and write clean rgba(0, 0, 0, 0) on removed background pixels
         const needInpaint: number[] = [];
         for (let pos = 0; pos < n; pos++) {
           const i = pos * 4;
           if (extBg[pos]) {
+            data[i] = 0;
+            data[i + 1] = 0;
+            data[i + 2] = 0;
             data[i + 3] = 0;
           } else {
             data[i] = origData[i];
@@ -561,6 +619,28 @@ export async function removeBackgroundCanvasBFS(
             data[i + 3] = 255;
             if (origData[i + 3] <= 12) {
               needInpaint.push(pos);
+            }
+          }
+        }
+
+        // Soft anti-aliased edge feathering on foreground boundary pixels touching extBg
+        for (let y = 1; y < h - 1; y++) {
+          const row = y * w;
+          for (let x = 1; x < w - 1; x++) {
+            const pos = row + x;
+            if (extBg[pos]) continue;
+            if (!(extBg[pos - 1] || extBg[pos + 1] || extBg[pos - w] || extBg[pos + w])) continue;
+            const i = pos * 4;
+            const d2 = minColorDistSq(data[i], data[i + 1], data[i + 2]);
+            if (d2 <= featherTolSq) {
+              const norm = Math.max(0, Math.min(1, (Math.sqrt(d2) - effectiveTol * 0.7) / Math.max(1, effectiveTol * 0.95)));
+              data[i + 3] = Math.round(norm * 255);
+              if (data[i + 3] <= 16) {
+                data[i] = 0;
+                data[i + 1] = 0;
+                data[i + 2] = 0;
+                data[i + 3] = 0;
+              }
             }
           }
         }

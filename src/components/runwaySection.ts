@@ -139,6 +139,7 @@ export class RunwaySection extends HTMLElement {
   private searchQuery = '';
 
   private stickyEl!: HTMLElement;
+  private leftEl!: HTMLElement;
   private titleEl!: HTMLElement;
   private subEl!: HTMLElement;
   private stageEl!: HTMLElement;
@@ -355,7 +356,9 @@ export class RunwaySection extends HTMLElement {
         <div class="rw__picker" id="${pickerId}" data-rw-picker hidden>
           <script type="application/json" data-rw-variants>${variantsJson}</script>
           <div class="rw__picker-head">
-            <img class="rw__picker-thumb" src="${escapeHtml(item.image)}" width="${item.mobileWidth}" height="${item.mobileHeight}" loading="lazy" decoding="async" alt="">
+            <div class="rw__picker-thumb-wrap">
+              <img class="rw__picker-thumb" src="${escapeHtml(item.image)}" width="${item.mobileWidth}" height="${item.mobileHeight}" loading="lazy" decoding="async" alt="">
+            </div>
             <div class="rw__picker-meta">
               <span class="rw__picker-title">${escapeHtml(item.name)}</span>
               <span class="rw__picker-price">${formatMoney(item.price)}</span>
@@ -673,6 +676,7 @@ export class RunwaySection extends HTMLElement {
 
   private bindElements(): void {
     this.stickyEl = this.querySelector('.rw__sticky')!;
+    this.leftEl = this.querySelector('.rw__left')!;
     this.titleEl = this.querySelector('.rw__title')!;
     this.subEl = this.querySelector('.rw__sub')!;
     this.stageEl = this.querySelector('[data-rw-stage]')!;
@@ -698,6 +702,11 @@ export class RunwaySection extends HTMLElement {
     this.lbNameEl = this.querySelector('[data-rw-lb-name]')!;
     this.lbCloseBtn = this.querySelector('[data-rw-zoom-close]')!;
     this.cursorEl = this.querySelector('[data-rw-cursor]');
+
+    if (this.lbEl) {
+      this.lbEl.setAttribute('aria-hidden', 'true');
+      this.lbEl.remove();
+    }
 
     if (this.hasFineHover) {
       this.classList.add('rw--cursor');
@@ -1123,6 +1132,11 @@ export class RunwaySection extends HTMLElement {
       'wheel',
       (e) => {
         if (this.mode !== 'ring' || this.zoomed) return;
+        // Let standard vertical mouse-wheel / trackpad scrolling pass straight through to the document
+        const isHorizontalGesture =
+          (Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 2) || e.shiftKey;
+        if (!isHorizontalGesture) return;
+
         const modeScale = e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? 400 : 1;
         const rawDelta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
         const delta = rawDelta * modeScale;
@@ -2164,6 +2178,10 @@ export class RunwaySection extends HTMLElement {
       this.lbCloseTimer = null;
     }
 
+    if (!this.lbEl.isConnected && this.leftEl) {
+      this.leftEl.appendChild(this.lbEl);
+    }
+
     const fromRect = hero.figure.getBoundingClientRect();
     this.lbStageEl.innerHTML = '';
 
@@ -2246,6 +2264,7 @@ export class RunwaySection extends HTMLElement {
         this.lbStageEl.innerHTML = '';
         this.lbModelWrapper = null;
         this.lbCloseTimer = null;
+        this.lbEl.remove();
       },
       this.reducedMotion ? 0 : 950
     );
@@ -2422,7 +2441,10 @@ export class RunwaySection extends HTMLElement {
   }
 
   private closeMobileSheet(restoreFocus: boolean): void {
-    if (!this.activeSheetPicker || !this.activeSheetCard) return;
+    if (!this.activeSheetPicker || !this.activeSheetCard) {
+      this.sheetHost?.remove();
+      return;
+    }
     const picker = this.activeSheetPicker;
     const card = this.activeSheetCard;
     const trigger = this.activeSheetTrigger;
@@ -2433,6 +2455,7 @@ export class RunwaySection extends HTMLElement {
     trigger?.setAttribute('aria-expanded', 'false');
 
     this.sheetHost?.classList.remove('is-open');
+    this.sheetHost?.remove();
     this.classList.remove('rw--picking');
     this.activeSheetPicker = null;
     this.activeSheetCard = null;

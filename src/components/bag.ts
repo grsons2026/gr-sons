@@ -198,6 +198,10 @@ export class StylingBag {
       }
     });
 
+    this.dialog?.addEventListener('close', () => {
+      this.dialog?.remove();
+    });
+
     this.codForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       this.handleCodCheckout();
@@ -211,9 +215,16 @@ export class StylingBag {
 
     this.exportBtn?.addEventListener('click', () => this.exportShortlist());
     this.render();
+
+    if (this.dialog && !this.dialog.open) {
+      this.dialog.remove();
+    }
   }
 
   public openDrawer(): void {
+    if (this.dialog && !this.dialog.isConnected) {
+      document.body.appendChild(this.dialog);
+    }
     this.render();
     if (this.dialog && !this.dialog.open) {
       this.dialog.showModal();
@@ -223,6 +234,8 @@ export class StylingBag {
   public closeDrawer(): void {
     if (this.dialog?.open) {
       this.dialog.close();
+    } else {
+      this.dialog?.remove();
     }
   }
 
@@ -411,6 +424,9 @@ export class StylingBag {
     document.querySelectorAll('[data-cart-count]').forEach((el) => {
       el.textContent = String(count);
     });
+    this.dialog?.querySelectorAll('[data-cart-count]').forEach((el) => {
+      el.textContent = String(count);
+    });
 
     if (!this.itemsEl || !this.exportBtn) return;
 
@@ -482,6 +498,9 @@ export class StylingBag {
       const row = document.createElement('div');
       row.className = 'bag-row';
 
+      const thumbWrap = document.createElement('div');
+      thumbWrap.className = 'bag-thumb-wrap';
+
       const img = document.createElement('img');
       img.src = record.item.image;
       img.alt = record.item.name;
@@ -489,6 +508,7 @@ export class StylingBag {
       img.height = 85;
       img.loading = 'lazy';
       img.decoding = 'async';
+      thumbWrap.appendChild(img);
 
       const details = document.createElement('div');
       details.className = 'bag-row-details';
@@ -545,7 +565,7 @@ export class StylingBag {
       removeBtn.textContent = '×';
       removeBtn.addEventListener('click', () => this.remove(entry.id));
 
-      row.append(img, details, removeBtn);
+      row.append(thumbWrap, details, removeBtn);
       this.itemsEl.appendChild(row);
     }
 

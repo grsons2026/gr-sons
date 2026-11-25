@@ -61,6 +61,10 @@ export class ShowroomAndEditorial {
       }
     });
 
+    this.fittingDialog?.addEventListener('close', () => {
+      this.fittingDialog?.remove();
+    });
+
     this.fittingForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       this.handleFittingSubmit();
@@ -81,10 +85,21 @@ export class ShowroomAndEditorial {
       }
     });
 
+    this.trackDialog?.addEventListener('close', () => {
+      this.trackDialog?.remove();
+    });
+
     this.trackForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       void this.handleTrackSubmit();
     });
+
+    if (this.fittingDialog && !this.fittingDialog.open) {
+      this.fittingDialog.remove();
+    }
+    if (this.trackDialog && !this.trackDialog.open) {
+      this.trackDialog.remove();
+    }
   }
 
   private syncShowroomFromStore(): void {
@@ -120,6 +135,9 @@ export class ShowroomAndEditorial {
     if (!this.trackDialog) return;
     if (this.trackResultsEl && !this.trackInput?.value.trim()) {
       this.trackResultsEl.innerHTML = '';
+    }
+    if (!this.trackDialog.isConnected) {
+      document.body.appendChild(this.trackDialog);
     }
     if (!this.trackDialog.open) {
       this.trackDialog.showModal();
@@ -254,6 +272,9 @@ export class ShowroomAndEditorial {
     if (this.fittingForm) this.fittingForm.hidden = false;
     if (this.fittingConfirm) this.fittingConfirm.hidden = true;
     if (this.fittingError) this.fittingError.textContent = '';
+    if (!this.fittingDialog.isConnected) {
+      document.body.appendChild(this.fittingDialog);
+    }
     if (!this.fittingDialog.open) {
       this.fittingDialog.showModal();
     }

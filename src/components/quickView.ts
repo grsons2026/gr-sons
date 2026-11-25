@@ -68,6 +68,10 @@ export class QuickViewModal {
     });
 
     if (this.sizeGuideDialog) {
+      this.sizeGuideDialog.addEventListener('close', () => {
+        this.sizeGuideDialog?.remove();
+      });
+
       this.sizeGuideDialog
         .querySelector('[data-sg-close]')
         ?.addEventListener('click', () => this.sizeGuideDialog?.close());
@@ -90,6 +94,10 @@ export class QuickViewModal {
           this.selectSizeGuideTab(tab.dataset.sgTab || 'apparel');
         });
       });
+
+      if (!this.sizeGuideDialog.open) {
+        this.sizeGuideDialog.remove();
+      }
     }
 
     if (!this.pdpEl) return;
@@ -206,6 +214,10 @@ export class QuickViewModal {
       e.preventDefault();
       this.close();
     });
+
+    if (this.pdpEl.hidden) {
+      this.pdpEl.remove();
+    }
   }
 
   private renderSizeGuideTables(): void {
@@ -291,6 +303,9 @@ export class QuickViewModal {
           ? 'shoes'
           : 'apparel';
     this.selectSizeGuideTab(tabId);
+    if (!this.sizeGuideDialog.isConnected) {
+      document.body.appendChild(this.sizeGuideDialog);
+    }
     if (!this.sizeGuideDialog.open) {
       this.sizeGuideDialog.showModal();
     }
@@ -533,6 +548,13 @@ export class QuickViewModal {
 
     this.renderCurrentProduct(ctx, true);
 
+    if (!this.pdpEl.isConnected) {
+      document.body.appendChild(this.pdpEl);
+    }
+    this.pdpEl.querySelectorAll('[data-cart-count]').forEach((el) => {
+      el.textContent = String(this.bag.getTotalCount());
+    });
+
     this.pdpEl.hidden = false;
     document.documentElement.classList.add('pdp-open');
     this.pdpEl.scrollTop = 0;
@@ -544,8 +566,9 @@ export class QuickViewModal {
   }
 
   public close(): void {
-    if (!this.pdpEl || this.pdpEl.hidden) return;
+    if (!this.pdpEl) return;
     this.pdpEl.hidden = true;
+    this.pdpEl.remove();
     document.documentElement.classList.remove('pdp-open');
     this.stageEl?.classList.remove('is-zooming', 'is-zoom-locked');
 
