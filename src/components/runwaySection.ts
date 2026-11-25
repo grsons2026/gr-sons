@@ -1270,7 +1270,9 @@ export class RunwaySection extends HTMLElement {
     const matches = storeState
       .getProducts()
       .filter((item) =>
-        `${item.name} ${item.vendor} ${item.type} ${item.storeCategory}`.toLowerCase().includes(query)
+        `${item.name} ${item.vendor} ${item.type} ${item.storeCategory} ${storeState.getCategoryLabel(item.storeCategory)}`
+          .toLowerCase()
+          .includes(query)
       );
 
     const title = 'Search Results';

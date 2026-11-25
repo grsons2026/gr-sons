@@ -1,5 +1,5 @@
-import { formatMoney } from '../data/catalog.ts';
-import { storeState } from '../data/storeState.ts';
+import { StoreCategory, StoreOrderItem, formatMoney } from '../data/catalog.ts';
+import { sanitizeWhatsappDigits, storeState } from '../data/storeState.ts';
 
 interface BagEntry {
   id: number;
@@ -16,6 +16,7 @@ interface VariantRecord {
     price: number;
     image: string;
     url: string;
+    storeCategory: Exclude<StoreCategory, 'all'>;
   };
 }
 
@@ -25,6 +26,7 @@ interface ConfirmedOrder {
   phone: string;
   address: string;
   itemsSummary: string[];
+  items: StoreOrderItem[];
   subtotal: number;
   delivery: number;
   total: number;
@@ -57,6 +59,7 @@ export class StylingBag {
   private codOrderNumberEl: HTMLElement | null = null;
   private codOrderMetaEl: HTMLElement | null = null;
   private codOrderReceiptEl: HTMLElement | null = null;
+  private codWhatsappBtn: HTMLAnchorElement | null = null;
   private codContinueBtn: HTMLButtonElement | null = null;
   private exportBtn: HTMLButtonElement | null = null;
   private statusEl: HTMLElement | null = null;
@@ -115,6 +118,7 @@ export class StylingBag {
             price: item.price,
             image: item.image,
             url: item.url,
+            storeCategory: item.storeCategory,
           },
         });
       }
@@ -178,6 +182,7 @@ export class StylingBag {
     this.codOrderNumberEl = document.getElementById('cod-order-number');
     this.codOrderMetaEl = document.getElementById('cod-order-meta');
     this.codOrderReceiptEl = document.getElementById('cod-order-receipt');
+    this.codWhatsappBtn = document.getElementById('cod-whatsapp-receipt') as HTMLAnchorElement | null;
     this.codContinueBtn = document.getElementById('cod-continue') as HTMLButtonElement | null;
     this.exportBtn = document.getElementById('export-bag') as HTMLButtonElement | null;
     this.statusEl = document.getElementById('bag-status');
@@ -325,14 +330,25 @@ export class StylingBag {
     const delivery = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
     const total = subtotal + delivery;
     const itemsSummary: string[] = [];
+    const orderItems: StoreOrderItem[] = [];
 
     for (const entry of this.entries) {
       const record = this.variantMap.get(entry.id);
       if (!record) continue;
       const size = record.o[0] ?? '';
+      const lineTotal = record.item.price * entry.quantity;
       itemsSummary.push(
-        `${record.item.name} (${size}) × ${entry.quantity} — ${formatMoney(record.item.price * entry.quantity)}`
+        `${record.item.name} (${size}) × ${entry.quantity} — ${formatMoney(lineTotal)}`
       );
+      orderItems.push({
+        productId: record.item.id,
+        name: record.item.name,
+        size,
+        quantity: entry.quantity,
+        unitPrice: record.item.price,
+        totalPrice: lineTotal,
+        storeCategory: record.item.storeCategory,
+      });
     }
 
     const orderNumber = `GR-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -342,16 +358,52 @@ export class StylingBag {
       phone,
       address,
       itemsSummary,
+      items: orderItems,
       subtotal,
       delivery,
       total,
     };
+
+    // Persist live order & sync to JSONBin Cloud so owner sees it immediately across devices
+    void storeState.placeOrder({
+      orderNumber,
+      customerName: name,
+      phone,
+      address,
+      items: orderItems,
+      subtotal,
+      delivery,
+      total,
+    });
 
     this.entries = [];
     this.writeStorage();
     this.codForm?.reset();
     this.render();
     this.toast(`Order #${orderNumber} confirmed for Cash on Delivery`);
+  }
+
+  private buildWhatsappReceiptUrl(order: ConfirmedOrder): string {
+    const storeDigits = sanitizeWhatsappDigits(storeState.getStoreWhatsapp());
+    const itemLines = order.itemsSummary.map((line, i) => `${i + 1}. ${line}`).join('\n');
+    const deliveryText = order.delivery === 0 ? 'Complimentary' : formatMoney(order.delivery);
+    const message = [
+      `Assalam-o-Alaikum *GR SON'S Atelier*,`,
+      `I have placed a Cash on Delivery order:`,
+      ``,
+      `*Order ID:* #${order.orderNumber}`,
+      `*Customer:* ${order.customerName}`,
+      `*Phone:* ${order.phone}`,
+      `*Delivery Address:* ${order.address}`,
+      ``,
+      `*Items Ordered:*`,
+      itemLines,
+      ``,
+      `Subtotal: ${formatMoney(order.subtotal)}`,
+      `Express Delivery: ${deliveryText}`,
+      `*Total Cash on Delivery: ${formatMoney(order.total)}*`,
+    ].join('\n');
+    return `https://wa.me/${storeDigits}?text=${encodeURIComponent(message)}`;
   }
 
   public render(): void {
@@ -390,6 +442,10 @@ export class StylingBag {
         totalEl.className = 'cod-receipt-total';
         totalEl.textContent = `Total Due on Delivery: ${formatMoney(this.lastConfirmedOrder.total)}`;
         this.codOrderReceiptEl.append(list, totalEl);
+      }
+      if (this.codWhatsappBtn) {
+        this.codWhatsappBtn.hidden = false;
+        this.codWhatsappBtn.href = this.buildWhatsappReceiptUrl(this.lastConfirmedOrder);
       }
       return;
     }

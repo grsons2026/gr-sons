@@ -1,18 +1,21 @@
 import {
+  CategorySizePreset,
   DEFAULT_HERO_BANNER,
   DEFAULT_SHOWROOM,
-  STORE_CATEGORIES,
+  OrderStatus,
   StoreCategory,
+  StoreOrder,
   formatMoney,
 } from '../data/catalog.ts';
 import {
   compressImageFile,
   removeBackgroundCanvasBFS,
+  sanitizeWhatsappDigits,
   storeState,
 } from '../data/storeState.ts';
 import { RunwaySection } from './runwaySection.ts';
 
-type AdminTabId = 'products' | 'banner' | 'runway' | 'sync';
+type AdminTabId = 'products' | 'banner' | 'runway' | 'sync' | 'orders';
 
 function escapeHtml(str: string): string {
   return String(str)
@@ -22,19 +25,16 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-const EDITABLE_CATEGORIES: { id: Exclude<StoreCategory, 'all'>; label: string }[] = [
-  { id: 'shirts', label: 'Shirts' },
-  { id: 'waistcoats-coats', label: 'Waistcoats & Coats' },
-  { id: 'trousers', label: 'Trousers' },
-  { id: 'shoes', label: 'Shoes' },
-];
-
 export class AdminPanel {
   private unlocked = false;
   private activeTab: AdminTabId = 'products';
   private selectedRunwayLookIdx = 0;
   private productSearch = '';
   private productCatFilter: StoreCategory = 'all';
+  private orderStatusFilter: 'All' | OrderStatus = 'All';
+  private orderTimeframe: 'days' | 'weeks' | 'months' = 'days';
+  private previewSampleSales = false;
+  private selectedChartDayIdx = 6;
   private newProductPhoto = '';
   private skipProductBgRemoval = false;
   private skipRunwayBgRemoval = false;
@@ -43,6 +43,8 @@ export class AdminPanel {
   private confirmResetPending = false;
   private confirmResetTimer: number | null = null;
   private pendingDeleteIds = new Set<string>();
+  private pendingDeleteCatIds = new Set<string>();
+  private pendingDeleteOrderIds = new Set<string>();
   private suppressNextStoreRender = false;
   private statusNotice = '';
   private statusNoticeTimer: number | null = null;
@@ -53,7 +55,7 @@ export class AdminPanel {
   private pinForm: HTMLFormElement | null = null;
   private pinInput: HTMLInputElement | null = null;
   private pinError: HTMLElement | null = null;
-  private dashboardDialog: HTMLDialogElement | null = null;
+  private dashboardDialog: HTMLElement | null = null;
   private dashboardBody: HTMLElement | null = null;
   private statusBarEl: HTMLElement | null = null;
   private saveBtnEl: HTMLButtonElement | null = null;
@@ -64,7 +66,7 @@ export class AdminPanel {
     this.pinForm = document.getElementById('admin-pin-form') as HTMLFormElement | null;
     this.pinInput = document.getElementById('admin-pin-input') as HTMLInputElement | null;
     this.pinError = document.getElementById('admin-pin-error');
-    this.dashboardDialog = document.getElementById('admin-dashboard-dialog') as HTMLDialogElement | null;
+    this.dashboardDialog = document.getElementById('admin-dashboard-dialog');
     this.dashboardBody = document.getElementById('admin-dashboard-body');
     this.statusBarEl = document.getElementById('admin-status-bar');
     this.saveBtnEl = document.getElementById('admin-save-all') as HTMLButtonElement | null;
@@ -124,16 +126,17 @@ export class AdminPanel {
 
     document.getElementById('admin-lock-close')?.addEventListener('click', () => {
       this.unlocked = false;
-      this.dashboardDialog?.close();
+      this.closeDashboard();
     });
 
     document.getElementById('admin-close-only')?.addEventListener('click', () => {
-      this.dashboardDialog?.close();
+      this.closeDashboard();
     });
 
-    this.dashboardDialog?.addEventListener('click', (e) => {
-      if (this.dashboardDialog && e.target === this.dashboardDialog) {
-        this.dashboardDialog.close();
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isDashboardOpen() && !this.pinDialog?.open) {
+        e.preventDefault();
+        this.closeDashboard();
       }
     });
 
@@ -150,9 +153,29 @@ export class AdminPanel {
     });
 
     storeState.subscribe(() => {
-      if (this.dashboardDialog?.open && !this.suppressNextStoreRender) {
+      this.syncPendingBadge();
+      if (this.isDashboardOpen() && !this.suppressNextStoreRender) {
         this.renderActiveTab();
       }
+    });
+    this.syncPendingBadge();
+  }
+
+  private isDashboardOpen(): boolean {
+    return Boolean(this.dashboardDialog && !this.dashboardDialog.hidden);
+  }
+
+  private closeDashboard(): void {
+    if (!this.dashboardDialog || this.dashboardDialog.hidden) return;
+    this.dashboardDialog.hidden = true;
+    document.documentElement.classList.remove('admin-open');
+  }
+
+  private syncPendingBadge(): void {
+    const pendingCount = storeState.getOrders().filter((o) => o.status === 'Pending').length;
+    document.querySelectorAll<HTMLElement>('[data-admin-pending-count]').forEach((el) => {
+      el.textContent = String(pendingCount);
+      el.hidden = pendingCount === 0;
     });
   }
 
@@ -198,8 +221,10 @@ export class AdminPanel {
   private openDashboard(): void {
     this.syncTabButtons();
     this.renderActiveTab();
-    if (this.dashboardDialog && !this.dashboardDialog.open) {
-      this.dashboardDialog.showModal();
+    if (this.dashboardDialog) {
+      this.dashboardDialog.hidden = false;
+      document.documentElement.classList.add('admin-open');
+      this.dashboardDialog.scrollTop = 0;
     }
   }
 
@@ -208,6 +233,7 @@ export class AdminPanel {
       const active = btn.dataset.adminTab === this.activeTab;
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
+    this.syncPendingBadge();
   }
 
   private showStatus(msg: string): void {
@@ -262,23 +288,24 @@ export class AdminPanel {
       skipAi: boolean;
       maxDim?: number;
       quality?: number;
+      maxChars?: number;
     }
   ): Promise<{ url: string; usedBgCleaner: boolean; fallbackUsed: boolean }> {
     const maxWidth = opts.maxDim ?? 700;
     const quality = opts.quality ?? 0.65;
 
     if (opts.skipAi) {
-      const url = await compressImageFile(file, maxWidth, quality);
+      const url = await compressImageFile(file, maxWidth, quality, opts.maxChars);
       return { url, usedBgCleaner: false, fallbackUsed: false };
     }
 
     this.setAiBusy(opts.target, 'Compressing & Removing Background...');
     try {
-      const url = await removeBackgroundCanvasBFS(file, maxWidth, 14, quality);
+      const url = await removeBackgroundCanvasBFS(file, maxWidth, 14, quality, opts.maxChars);
       return { url, usedBgCleaner: true, fallbackUsed: false };
     } catch (err) {
       console.warn('Canvas flood-fill background removal fallback to compressed upload:', err);
-      const url = await compressImageFile(file, maxWidth, quality);
+      const url = await compressImageFile(file, maxWidth, quality, opts.maxChars);
       return { url, usedBgCleaner: false, fallbackUsed: true };
     } finally {
       this.setAiBusy(null);
@@ -357,75 +384,211 @@ export class AdminPanel {
       case 'sync':
         this.renderSyncAndShowroomTab();
         break;
+      case 'orders':
+        this.renderOrdersTab();
+        break;
     }
   }
 
   // =========================================================================
-  // TAB 1: PRODUCTS & PRICES MANAGER (PKR)
+  // TAB 1: PRODUCTS, MULTI-ANGLE GALLERY & PRICES MANAGER (PKR)
   // =========================================================================
   private renderProductsTab(): void {
     if (!this.dashboardBody) return;
+    const categories = storeState.getCategories();
+    if (
+      this.productCatFilter !== 'all' &&
+      !categories.some((c) => c.id === this.productCatFilter)
+    ) {
+      this.productCatFilter = 'all';
+    }
+
     const allProducts = storeState.getProducts();
+    const countByCat = new Map<string, number>();
+    for (const prod of allProducts) {
+      countByCat.set(prod.storeCategory, (countByCat.get(prod.storeCategory) || 0) + 1);
+    }
+
     const query = this.productSearch.trim().toLowerCase();
     const filtered = allProducts.filter((p) => {
       if (this.productCatFilter !== 'all' && p.storeCategory !== this.productCatFilter) {
         return false;
       }
       if (!query) return true;
-      return `${p.name} ${p.vendor} ${p.type} ${p.storeCategory}`.toLowerCase().includes(query);
+      return `${p.name} ${p.vendor} ${p.type} ${p.storeCategory} ${storeState.getCategoryLabel(p.storeCategory)} ${p.sku || ''}`
+        .toLowerCase()
+        .includes(query);
     });
 
-    const catOptionsHtml = EDITABLE_CATEGORIES.map(
-      (c) => `<option value="${c.id}">${escapeHtml(c.label)}</option>`
-    ).join('');
+    const catOptionsHtml = categories
+      .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`)
+      .join('');
 
-    const filterButtonsHtml = STORE_CATEGORIES.map((c) => {
-      const active = c.id === this.productCatFilter;
-      return `<button type="button" class="adm-chip" data-adm-cat-filter="${c.id}" aria-pressed="${active ? 'true' : 'false'}">${escapeHtml(c.label)}</button>`;
-    }).join('');
+    const filterTabs = [{ id: 'all', label: 'All' }, ...categories];
+    const filterButtonsHtml = filterTabs
+      .map((c) => {
+        const active = c.id === this.productCatFilter;
+        return `<button type="button" class="adm-chip" data-adm-cat-filter="${escapeHtml(c.id)}" aria-pressed="${active ? 'true' : 'false'}">${escapeHtml(c.label)}</button>`;
+      })
+      .join('');
+
+    const categoryRowsHtml = categories
+      .map((cat) => {
+        const itemCount = countByCat.get(cat.id) || 0;
+        const isConfirmingDel = this.pendingDeleteCatIds.has(cat.id);
+        const disableDelete = categories.length <= 1;
+        const presetVal: CategorySizePreset =
+          cat.sizePreset ||
+          (cat.id === 'trousers'
+            ? 'trousers'
+            : cat.id === 'shoes'
+              ? 'shoes'
+              : 'apparel');
+
+        return `
+          <div class="adm-cat-row" data-adm-cat-row="${escapeHtml(cat.id)}">
+            <div class="adm-cat-field-name">
+              <label>Section Name</label>
+              <input
+                type="text"
+                value="${escapeHtml(cat.label)}"
+                data-adm-cat-rename="${escapeHtml(cat.id)}"
+                aria-label="Rename section ${escapeHtml(cat.label)}"
+              />
+            </div>
+            <div class="adm-cat-field-preset">
+              <label>Default Sizing</label>
+              <select data-adm-cat-preset="${escapeHtml(cat.id)}" aria-label="Sizing preset for ${escapeHtml(cat.label)}">
+                <option value="apparel"${presetVal === 'apparel' ? ' selected' : ''}>Apparel (S / M / L / XL)</option>
+                <option value="trousers"${presetVal === 'trousers' ? ' selected' : ''}>Trousers (28–34)</option>
+                <option value="shoes"${presetVal === 'shoes' ? ' selected' : ''}>Shoes (EU 40–46)</option>
+                <option value="one-size"${presetVal === 'one-size' ? ' selected' : ''}>Accessories (Standard)</option>
+              </select>
+            </div>
+            <div class="adm-cat-meta">
+              <span>${itemCount} ${itemCount === 1 ? 'item' : 'items'}</span>
+              <span aria-hidden="true">·</span>
+              <span class="adm-cat-slug">${escapeHtml(cat.id)}</span>
+            </div>
+            <button
+              type="button"
+              class="adm-btn-danger adm-cat-del-btn${isConfirmingDel ? ' is-confirming' : ''}"
+              data-adm-cat-del="${escapeHtml(cat.id)}"
+              ${disableDelete ? 'disabled title="Keep at least one category section"' : ''}
+            >
+              ${isConfirmingDel ? 'Confirm Delete?' : 'Delete'}
+            </button>
+          </div>
+        `;
+      })
+      .join('');
 
     const rowsHtml = filtered
       .map((item) => {
         const isConfirmingDel = this.pendingDeleteIds.has(item.id);
-        const catOpts = EDITABLE_CATEGORIES.map(
-          (c) =>
-            `<option value="${c.id}"${item.storeCategory === c.id ? ' selected' : ''}>${escapeHtml(c.label)}</option>`
-        ).join('');
+        const catOpts = categories
+          .map(
+            (c) =>
+              `<option value="${escapeHtml(c.id)}"${item.storeCategory === c.id ? ' selected' : ''}>${escapeHtml(c.label)}</option>`
+          )
+          .join('');
 
         const prodTarget = `prod-${item.id}`;
         const prodBusy = this.aiBusyTarget === prodTarget;
+        const gallery = storeState.getProductGallery(item);
+        const skuVal = storeState.getProductSku(item);
+        const fabricVal = storeState.getProductFabricNotes(item);
+
+        const angleSlotsHtml = [0, 1, 2, 3]
+          .map((slotIdx) => {
+            const slotUrl = gallery[slotIdx] || '';
+            const slotBusy = this.aiBusyTarget === `prod-${item.id}-slot-${slotIdx}`;
+            const slotLabel = slotIdx === 0 ? 'Main Photo' : `Angle ${slotIdx + 1}`;
+            return `
+              <div class="adm-angle-slot${slotUrl ? ' has-photo' : ''}">
+                <div class="adm-angle-head">
+                  <span>${slotLabel}</span>
+                  ${
+                    slotIdx > 0 && slotUrl
+                      ? `<button type="button" class="adm-angle-clear" data-adm-angle-clear="${escapeHtml(item.id)}" data-slot="${slotIdx}" aria-label="Remove ${slotLabel}">×</button>`
+                      : ''
+                  }
+                </div>
+                <div class="adm-angle-thumb">
+                  ${
+                    slotUrl
+                      ? `<img src="${escapeHtml(slotUrl)}" alt="${escapeHtml(item.name)} ${slotLabel}" loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
+                      : `<span class="adm-angle-empty">+ Empty</span>`
+                  }
+                  <div class="adm-ai-overlay adm-ai-overlay--mini${slotBusy ? ' is-busy' : ''}" data-ai-overlay="prod-${escapeHtml(item.id)}-slot-${slotIdx}" aria-live="polite">
+                    <span class="adm-ai-spinner" aria-hidden="true"></span>
+                  </div>
+                </div>
+                <div class="adm-angle-controls">
+                  <label class="adm-upload-mini">
+                    <span>Upload</span>
+                    <input type="file" accept="image/*" data-adm-angle-file="${escapeHtml(item.id)}" data-slot="${slotIdx}" ${this.aiBusyTarget ? 'disabled' : ''} hidden />
+                  </label>
+                  <input
+                    type="url"
+                    class="adm-angle-url"
+                    placeholder="Paste URL..."
+                    value="${slotUrl.startsWith('data:') ? '' : escapeHtml(slotUrl)}"
+                    data-adm-angle-url="${escapeHtml(item.id)}"
+                    data-slot="${slotIdx}"
+                    aria-label="${slotLabel} image URL for ${escapeHtml(item.name)}"
+                  />
+                </div>
+              </div>
+            `;
+          })
+          .join('');
 
         return `
-          <div class="adm-prod-row" data-adm-prod="${escapeHtml(item.id)}">
+          <div class="adm-prod-row adm-prod-row--rich" data-adm-prod="${escapeHtml(item.id)}">
             <div class="adm-prod-photo-col">
               <div class="adm-prod-thumb-wrap">
                 <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}" width="72" height="90" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
                 <div class="adm-ai-overlay adm-ai-overlay--mini${prodBusy ? ' is-busy' : ''}" data-ai-overlay="${escapeHtml(prodTarget)}" aria-live="polite">
                   <span class="adm-ai-spinner" aria-hidden="true"></span>
-                  <span class="adm-ai-text" data-ai-label>${escapeHtml(prodBusy ? this.aiBusyLabel : 'Removing Background...')}</span>
+                  <span class="adm-ai-text" data-ai-label>${escapeHtml(prodBusy ? this.aiBusyLabel : 'Compressing...')}</span>
                 </div>
               </div>
               <label class="adm-upload-mini">
-                <span>Change Photo</span>
+                <span>Change Main</span>
                 <input type="file" accept="image/*" data-adm-prod-photo="${escapeHtml(item.id)}" ${this.aiBusyTarget ? 'disabled' : ''} hidden />
               </label>
             </div>
-            <div class="adm-prod-fields">
-              <div class="adm-field">
-                <label>Product Name</label>
-                <input type="text" value="${escapeHtml(item.name)}" data-adm-prod-name="${escapeHtml(item.id)}" />
+            <div class="adm-prod-main-col">
+              <div class="adm-prod-fields">
+                <div class="adm-field">
+                  <label>Product Name</label>
+                  <input type="text" value="${escapeHtml(item.name)}" data-adm-prod-name="${escapeHtml(item.id)}" />
+                </div>
+                <div class="adm-field">
+                  <label>Price (PKR)</label>
+                  <input type="number" min="0" step="100" value="${Math.round(item.price)}" data-adm-prod-price="${escapeHtml(item.id)}" />
+                </div>
+                <div class="adm-field">
+                  <label>Category</label>
+                  <select data-adm-prod-cat="${escapeHtml(item.id)}">${catOpts}</select>
+                </div>
+                <div class="adm-field">
+                  <label>Brand / Label</label>
+                  <input type="text" value="${escapeHtml(item.vendor)}" data-adm-prod-vendor="${escapeHtml(item.id)}" />
+                </div>
+                <div class="adm-field">
+                  <label>SKU Code</label>
+                  <input type="text" value="${escapeHtml(skuVal)}" data-adm-prod-sku="${escapeHtml(item.id)}" />
+                </div>
+                <div class="adm-field adm-field--span2">
+                  <label>Fabric &amp; Tailoring Notes (Shown on Product Page)</label>
+                  <textarea rows="2" data-adm-prod-fabric="${escapeHtml(item.id)}">${escapeHtml(fabricVal)}</textarea>
+                </div>
               </div>
-              <div class="adm-field">
-                <label>Price (PKR)</label>
-                <input type="number" min="0" step="100" value="${Math.round(item.price)}" data-adm-prod-price="${escapeHtml(item.id)}" />
-              </div>
-              <div class="adm-field">
-                <label>Category</label>
-                <select data-adm-prod-cat="${escapeHtml(item.id)}">${catOpts}</select>
-              </div>
-              <div class="adm-field">
-                <label>Brand / Label</label>
-                <input type="text" value="${escapeHtml(item.vendor)}" data-adm-prod-vendor="${escapeHtml(item.id)}" />
+              <div class="adm-multi-angles">
+                <span class="adm-angles-label">Product Gallery (Up to 4 Angles · Auto-Compressed &lt;35KB for Cloud Sync)</span>
+                <div class="adm-angles-grid">${angleSlotsHtml}</div>
               </div>
             </div>
             <div class="adm-prod-actions">
@@ -443,16 +606,51 @@ export class AdminPanel {
 
     this.dashboardBody.innerHTML = `
       <div class="adm-section">
+        <div class="adm-card adm-cat-manager">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Live Filter Pills &amp; Horizontal Mobile Rows · Cloud Synced</span>
+              <h3>Manage Storefront Sections &amp; Categories</h3>
+            </div>
+            <span class="adm-sync-pill">${categories.length} Active ${categories.length === 1 ? 'Section' : 'Sections'}</span>
+          </div>
+          <p class="adm-help">
+            Create new menswear sections (e.g. <strong>Shalwar Kameez</strong>, <strong>Sherwani</strong>, <strong>Pants</strong>, <strong>Accessories</strong>), rename existing tabs, or delete unused categories. Changes sync live across Storefront filter pills, horizontal carousels, and Sales Analytics.
+          </p>
+          <form id="adm-new-cat-form" class="adm-cat-create-grid">
+            <div class="adm-field">
+              <label for="adm-new-cat-name">New Section Name</label>
+              <input id="adm-new-cat-name" type="text" placeholder="e.g. Shalwar Kameez, Sherwani, Accessories" required />
+            </div>
+            <div class="adm-field">
+              <label for="adm-new-cat-preset">Sizing Option Preset</label>
+              <select id="adm-new-cat-preset">
+                <option value="apparel">Apparel (S / M / L / XL)</option>
+                <option value="trousers">Trousers / Pants (28 / 30 / 32 / 34)</option>
+                <option value="shoes">Shoes (EU 40–46)</option>
+                <option value="one-size">Accessories (Standard)</option>
+              </select>
+            </div>
+            <div class="adm-cat-create-submit">
+              <button type="submit" class="adm-btn-gold">+ Create Section</button>
+            </div>
+          </form>
+          <div class="adm-cat-list">${categoryRowsHtml}</div>
+        </div>
+
         <div class="adm-card adm-add-card">
           <div class="adm-card-head">
             <div>
-              <span class="adm-eyebrow">New Inventory Item · Instant Canvas Cutout</span>
+              <span class="adm-eyebrow">New Inventory Item · Compressed &lt;35KB Cloud Ready</span>
               <h3>Add New Product (PKR)</h3>
             </div>
-            <label class="adm-ai-skip-toggle">
-              <input type="checkbox" id="adm-skip-ai-prod" ${this.skipProductBgRemoval ? 'checked' : ''} />
-              <span>Skip Background Removal</span>
-            </label>
+            <div class="adm-head-inline-tools">
+              <button type="button" class="adm-btn-secondary" id="adm-jump-sizeguide">Edit Size Guide →</button>
+              <label class="adm-ai-skip-toggle">
+                <input type="checkbox" id="adm-skip-ai-prod" ${this.skipProductBgRemoval ? 'checked' : ''} />
+                <span>Skip Background Removal</span>
+              </label>
+            </div>
           </div>
           <form id="adm-new-prod-form" class="adm-add-grid">
             <div class="adm-new-preview">
@@ -464,11 +662,11 @@ export class AdminPanel {
                 }
                 <div class="adm-ai-overlay${newProdBusy ? ' is-busy' : ''}" data-ai-overlay="new-product" aria-live="polite">
                   <span class="adm-ai-spinner" aria-hidden="true"></span>
-                  <span class="adm-ai-text" data-ai-label>${escapeHtml(newProdBusy ? this.aiBusyLabel : 'Removing Background...')}</span>
+                  <span class="adm-ai-text" data-ai-label>${escapeHtml(newProdBusy ? this.aiBusyLabel : 'Compressing...')}</span>
                 </div>
               </div>
               <label class="adm-btn-secondary adm-upload-label">
-                <span id="adm-new-upload-label">${this.skipProductBgRemoval ? 'Upload Photo (As-Is)' : 'Upload Photo (Auto-Removes Background)'}</span>
+                <span id="adm-new-upload-label">${this.skipProductBgRemoval ? 'Upload Photo (As-Is, <35KB)' : 'Upload Photo (Auto-Removes Background)'}</span>
                 <input type="file" id="adm-new-photo-input" accept="image/*" ${this.aiBusyTarget ? 'disabled' : ''} hidden />
               </label>
             </div>
@@ -479,7 +677,7 @@ export class AdminPanel {
               </div>
               <div class="adm-field">
                 <label for="adm-new-vendor">Brand / Label</label>
-                <input id="adm-new-vendor" type="text" value="Nike Atelier" />
+                <input id="adm-new-vendor" type="text" value="GR SON'S Atelier" />
               </div>
               <div class="adm-field">
                 <label for="adm-new-price">Price (PKR)</label>
@@ -488,6 +686,14 @@ export class AdminPanel {
               <div class="adm-field">
                 <label for="adm-new-cat">Category</label>
                 <select id="adm-new-cat">${catOptionsHtml}</select>
+              </div>
+              <div class="adm-field">
+                <label for="adm-new-sku">SKU (Optional)</label>
+                <input id="adm-new-sku" type="text" placeholder="e.g. GR-WC-2026" />
+              </div>
+              <div class="adm-field adm-field--full">
+                <label for="adm-new-fabric">Fabric &amp; Tailoring Notes (Optional)</label>
+                <textarea id="adm-new-fabric" rows="2" placeholder="e.g. Italian worsted wool blend, satin inner lining, custom horn buttons..."></textarea>
               </div>
               <div class="adm-add-submit-wrap">
                 <button type="submit" class="adm-btn-gold">+ Add Product to Store</button>
@@ -509,18 +715,92 @@ export class AdminPanel {
       </div>
     `;
 
+    // Category Section Manager handlers (Create, Rename, Preset, Delete)
+    const newCatForm = document.getElementById('adm-new-cat-form') as HTMLFormElement | null;
+    newCatForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('adm-new-cat-name') as HTMLInputElement | null;
+      const presetSel = document.getElementById('adm-new-cat-preset') as HTMLSelectElement | null;
+      const label = nameInput?.value.trim() || '';
+      if (!label) return;
+      const preset = (presetSel?.value || 'apparel') as CategorySizePreset;
+      const created = storeState.addCategory(label, preset);
+      if (created) {
+        this.showStatus(`Created "${created.label}" section live. Click Save All Changes to push to Cloud.`);
+        this.renderProductsTab();
+      }
+    });
+
+    this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-cat-rename]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        const catId = inp.dataset.admCatRename;
+        if (!catId) return;
+        const clean = inp.value.trim();
+        if (!clean) {
+          inp.value = storeState.getCategoryLabel(catId);
+          return;
+        }
+        storeState.updateCategory(catId, { label: clean });
+        this.showStatus(`Renamed storefront section to "${clean}".`);
+      });
+    });
+
+    this.dashboardBody.querySelectorAll<HTMLSelectElement>('[data-adm-cat-preset]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const catId = sel.dataset.admCatPreset;
+        if (!catId) return;
+        storeState.updateCategory(catId, {
+          sizePreset: sel.value as CategorySizePreset,
+        });
+        this.showStatus('Updated default size preset for section.');
+      });
+    });
+
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-cat-del]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const catId = btn.dataset.admCatDel;
+        if (!catId) return;
+        if (!this.pendingDeleteCatIds.has(catId)) {
+          this.pendingDeleteCatIds.add(catId);
+          this.renderProductsTab();
+          window.setTimeout(() => {
+            if (this.pendingDeleteCatIds.delete(catId) && this.activeTab === 'products') {
+              this.renderProductsTab();
+            }
+          }, 4000);
+          return;
+        }
+        this.pendingDeleteCatIds.delete(catId);
+        const result = storeState.deleteCategory(catId);
+        if (this.productCatFilter === catId) {
+          this.productCatFilter = 'all';
+        }
+        this.showStatus(result.message);
+        this.renderProductsTab();
+      });
+    });
+
+    document.getElementById('adm-jump-sizeguide')?.addEventListener('click', () => {
+      this.activeTab = 'sync';
+      this.syncTabButtons();
+      this.renderActiveTab();
+      window.setTimeout(() => {
+        document.getElementById('adm-sizeguide-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 40);
+    });
+
     const skipProdToggle = document.getElementById('adm-skip-ai-prod') as HTMLInputElement | null;
     skipProdToggle?.addEventListener('change', () => {
       this.skipProductBgRemoval = Boolean(skipProdToggle.checked);
       const lbl = document.getElementById('adm-new-upload-label');
       if (lbl) {
         lbl.textContent = this.skipProductBgRemoval
-          ? 'Upload Photo (As-Is)'
+          ? 'Upload Photo (As-Is, <35KB)'
           : 'Upload Photo (Auto-Removes Background)';
       }
       this.showStatus(
         this.skipProductBgRemoval
-          ? 'Auto background removal paused — product uploads will keep original backgrounds.'
+          ? 'Auto background removal paused — product uploads compress cleanly under 35KB.'
           : 'Instant Canvas Flood-Fill background removal enabled — product cutouts float cleanly on #efece6.'
       );
     });
@@ -533,8 +813,9 @@ export class AdminPanel {
       const result = await this.processUploadedImage(file, {
         target: 'new-product',
         skipAi: this.skipProductBgRemoval,
-        maxDim: 700,
-        quality: 0.65,
+        maxDim: 650,
+        quality: 0.62,
+        maxChars: 35 * 1024,
       });
       this.newProductPhoto = result.url;
       const stage = document.getElementById('adm-new-preview-stage');
@@ -551,10 +832,8 @@ export class AdminPanel {
       }
       this.showStatus(
         result.usedBgCleaner
-          ? 'Removed outer background cleanly via Canvas Flood-Fill!'
-          : result.fallbackUsed
-            ? 'Could not flood-fill file — kept clean original photo.'
-            : 'Uploaded original product photo as-is.'
+          ? 'Compressed (<35KB) & removed outer background cleanly!'
+          : 'Compressed & uploaded product photo (<35KB).'
       );
     });
 
@@ -565,15 +844,19 @@ export class AdminPanel {
       const vendorEl = document.getElementById('adm-new-vendor') as HTMLInputElement | null;
       const priceEl = document.getElementById('adm-new-price') as HTMLInputElement | null;
       const catEl = document.getElementById('adm-new-cat') as HTMLSelectElement | null;
+      const skuEl = document.getElementById('adm-new-sku') as HTMLInputElement | null;
+      const fabricEl = document.getElementById('adm-new-fabric') as HTMLTextAreaElement | null;
       const name = nameEl?.value.trim() || '';
       if (!name) return;
 
       const added = storeState.addProduct({
         name,
-        vendor: vendorEl?.value.trim() || 'Nike Atelier',
+        vendor: vendorEl?.value.trim() || "GR SON'S Atelier",
         price: Number(priceEl?.value || 0),
-        storeCategory: (catEl?.value || 'shirts') as Exclude<StoreCategory, 'all'>,
+        storeCategory: (catEl?.value || categories[0]?.id || 'shirts') as Exclude<StoreCategory, 'all'>,
         image: this.newProductPhoto || storeState.getProducts()[0]?.image || '',
+        sku: skuEl?.value.trim(),
+        fabricNotes: fabricEl?.value.trim(),
       });
       this.newProductPhoto = '';
       this.showStatus(`Added "${added.name}" (${formatMoney(added.price)}) to storefront.`);
@@ -601,38 +884,49 @@ export class AdminPanel {
 
     this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-prod-name]').forEach((inp) => {
       inp.addEventListener('change', () => {
-        const id = inp.dataset.admProdName!;
-        storeState.updateProduct(id, { name: inp.value });
+        storeState.updateProduct(inp.dataset.admProdName!, { name: inp.value });
         this.showStatus('Updated product name live.');
       });
     });
 
     this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-prod-vendor]').forEach((inp) => {
       inp.addEventListener('change', () => {
-        const id = inp.dataset.admProdVendor!;
-        storeState.updateProduct(id, { vendor: inp.value });
+        storeState.updateProduct(inp.dataset.admProdVendor!, { vendor: inp.value });
         this.showStatus('Updated brand label live.');
       });
     });
 
     this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-prod-price]').forEach((inp) => {
       inp.addEventListener('change', () => {
-        const id = inp.dataset.admProdPrice!;
-        storeState.updateProduct(id, { price: Number(inp.value || 0) });
+        storeState.updateProduct(inp.dataset.admProdPrice!, { price: Number(inp.value || 0) });
         this.showStatus('Updated product price (PKR) live.');
       });
     });
 
     this.dashboardBody.querySelectorAll<HTMLSelectElement>('[data-adm-prod-cat]').forEach((sel) => {
       sel.addEventListener('change', () => {
-        const id = sel.dataset.admProdCat!;
-        storeState.updateProduct(id, {
+        storeState.updateProduct(sel.dataset.admProdCat!, {
           storeCategory: sel.value as Exclude<StoreCategory, 'all'>,
         });
         this.showStatus('Updated product category live.');
       });
     });
 
+    this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-prod-sku]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        storeState.updateProduct(inp.dataset.admProdSku!, { sku: inp.value });
+        this.showStatus('Updated product SKU.');
+      });
+    });
+
+    this.dashboardBody.querySelectorAll<HTMLTextAreaElement>('[data-adm-prod-fabric]').forEach((ta) => {
+      ta.addEventListener('change', () => {
+        storeState.updateProduct(ta.dataset.admProdFabric!, { fabricNotes: ta.value });
+        this.showStatus('Updated fabric & tailoring notes.');
+      });
+    });
+
+    // Main photo quick button
     this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-prod-photo]').forEach((inp) => {
       inp.addEventListener('change', async () => {
         const id = inp.dataset.admProdPhoto!;
@@ -642,17 +936,54 @@ export class AdminPanel {
         const result = await this.processUploadedImage(file, {
           target: `prod-${id}`,
           skipAi: this.skipProductBgRemoval,
-          maxDim: 700,
-          quality: 0.65,
+          maxDim: 650,
+          quality: 0.62,
+          maxChars: 35 * 1024,
         });
         storeState.updateProduct(id, { image: result.url });
-        this.showStatus(
-          result.usedBgCleaner
-            ? 'Removed outer background cleanly — updated product card!'
-            : result.fallbackUsed
-              ? 'Could not flood-fill file — updated product photo as-is.'
-              : 'Updated product photo live.'
-        );
+        this.showStatus('Compressed main photo (<35KB) & updated product card!');
+      });
+    });
+
+    // Multi-Angle Slot File Upload (Up to 4 angles, max 650px, <35KB)
+    this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-angle-file]').forEach((inp) => {
+      inp.addEventListener('change', async () => {
+        const id = inp.dataset.admAngleFile!;
+        const slotIdx = Number(inp.dataset.slot || 0);
+        const file = inp.files?.[0];
+        if (!file) return;
+        inp.value = '';
+        const result = await this.processUploadedImage(file, {
+          target: `prod-${id}-slot-${slotIdx}`,
+          skipAi: this.skipProductBgRemoval,
+          maxDim: 650,
+          quality: 0.62,
+          maxChars: 35 * 1024,
+        });
+        storeState.updateProductGallerySlot(id, slotIdx, result.url);
+        this.showStatus(`Compressed & saved Angle ${slotIdx + 1} photo (<35KB)!`);
+      });
+    });
+
+    // Multi-Angle Slot URL Paste
+    this.dashboardBody.querySelectorAll<HTMLInputElement>('[data-adm-angle-url]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        const id = inp.dataset.admAngleUrl!;
+        const slotIdx = Number(inp.dataset.slot || 0);
+        const val = inp.value.trim();
+        if (!val) return;
+        storeState.updateProductGallerySlot(id, slotIdx, val);
+        this.showStatus(`Updated Angle ${slotIdx + 1} photo URL.`);
+      });
+    });
+
+    // Clear Angle 2-4
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-angle-clear]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.admAngleClear!;
+        const slotIdx = Number(btn.dataset.slot || 1);
+        storeState.updateProductGallerySlot(id, slotIdx, '');
+        this.showStatus(`Removed Angle ${slotIdx + 1} photo.`);
       });
     });
 
@@ -827,7 +1158,7 @@ export class AdminPanel {
     this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-slide-preview]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const idx = Number(btn.dataset.admSlidePreview);
-        this.dashboardDialog?.close();
+        this.closeDashboard();
         const runway = document.querySelector<RunwaySection>('runway-section');
         runway?.setHeroSlide(idx, true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -957,10 +1288,13 @@ export class AdminPanel {
           )
           .join('');
 
-        const catOpts = EDITABLE_CATEGORIES.map(
-          (c) =>
-            `<option value="${c.id}"${item?.storeCategory === c.id ? ' selected' : ''}>${escapeHtml(c.label)}</option>`
-        ).join('');
+        const catOpts = storeState
+          .getCategories()
+          .map(
+            (c) =>
+              `<option value="${escapeHtml(c.id)}"${item?.storeCategory === c.id ? ' selected' : ''}>${escapeHtml(c.label)}</option>`
+          )
+          .join('');
 
         const pieceTarget = `piece-${piece.num}`;
         const pieceBusy = this.aiBusyTarget === pieceTarget;
@@ -1261,7 +1595,7 @@ export class AdminPanel {
     });
 
     document.getElementById('adm-rw-jump-preview')?.addEventListener('click', () => {
-      this.dashboardDialog?.close();
+      this.closeDashboard();
       const runway = document.querySelector<RunwaySection>('runway-section');
       if (runway) {
         runway.setMode('ring');
@@ -1354,12 +1688,13 @@ export class AdminPanel {
   }
 
   // =========================================================================
-  // TAB 4: GLOBAL CLOUD SYNC & FLAGSHIP SHOWROOM EDITOR
+  // TAB 4: GLOBAL CLOUD SYNC, WHATSAPP, SECURITY PIN & SHOWROOM EDITOR
   // =========================================================================
   private renderSyncAndShowroomTab(): void {
     if (!this.dashboardBody) return;
     const cloud = storeState.getCloudSync();
     const sr = storeState.getShowroom();
+    const storeWhatsapp = storeState.getStoreWhatsapp();
     const lastSyncText = cloud.lastSyncedAt
       ? `Last Cloud Sync: ${new Date(cloud.lastSyncedAt).toLocaleString()}`
       : 'Not synced to cloud yet';
@@ -1376,7 +1711,7 @@ export class AdminPanel {
           </div>
 
           <p class="adm-help">
-            Paste a free <strong>JSONBin.io v3 URL</strong> or <strong>Firebase Realtime DB (.json)</strong> endpoint so price, banner, showroom, and runway updates appear automatically on all customer phones worldwide.
+            Paste a free <strong>JSONBin.io v3 URL</strong> or <strong>Firebase Realtime DB (.json)</strong> endpoint so price, banner, orders, WhatsApp, PIN, showroom, and runway updates appear automatically on all devices worldwide.
           </p>
 
           <div class="adm-form-grid">
@@ -1385,7 +1720,7 @@ export class AdminPanel {
               <input
                 id="adm-cloud-url"
                 type="url"
-                placeholder="e.g. https://api.jsonbin.io/v3/b/YOUR_BIN_ID or https://your-project.firebaseio.com/grsons.json"
+                placeholder="e.g. https://api.jsonbin.io/v3/b/YOUR_BIN_ID"
                 value="${escapeHtml(cloud.endpointUrl)}"
               />
             </div>
@@ -1412,6 +1747,188 @@ export class AdminPanel {
             <button type="button" class="adm-btn-secondary" id="adm-cloud-pull">Pull Latest from Cloud</button>
             <button type="button" class="adm-btn-secondary" id="adm-export-config">Export Live Config (.json)</button>
             <button type="button" class="adm-btn-secondary" id="adm-copy-config">Copy Config JSON</button>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Customer Concierge &amp; COD WhatsApp Receipts</span>
+              <h3>Store WhatsApp Number</h3>
+            </div>
+            <span class="adm-sync-pill" id="adm-wa-preview-link">wa.me/${escapeHtml(storeWhatsapp)}</span>
+          </div>
+          <p class="adm-help">
+            Used for the storefront Floating WhatsApp Concierge button and Cash on Delivery order receipts. Include country code without + (e.g. <strong>923001234567</strong>).
+          </p>
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label for="adm-store-whatsapp">Store WhatsApp Number (International Digits)</label>
+              <input
+                id="adm-store-whatsapp"
+                type="tel"
+                inputmode="numeric"
+                placeholder="923001234567"
+                value="${escapeHtml(storeWhatsapp)}"
+              />
+            </div>
+            <div class="adm-field adm-field-checkbox-wrap">
+              <button type="button" class="adm-btn-gold" id="adm-wa-save-sync">Save &amp; Sync WhatsApp Number</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Secret Owner Access · Synced to Cloud</span>
+              <h3>Security &amp; Owner PIN</h3>
+            </div>
+            <span class="adm-sync-pill">4–6 Numeric Digits</span>
+          </div>
+          <p class="adm-help">
+            Update your private 4–6 digit Admin PIN. Changes save locally and push to JSONBin Cloud so your updated PIN works seamlessly across all your phones and laptops.
+          </p>
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label for="adm-pin-current">Current Owner PIN</label>
+              <input id="adm-pin-current" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Enter current PIN" />
+            </div>
+            <div class="adm-field">
+              <label for="adm-pin-new">New Owner PIN (4–6 digits)</label>
+              <input id="adm-pin-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="e.g. 4829" />
+            </div>
+            <div class="adm-field">
+              <label for="adm-pin-confirm">Confirm New PIN</label>
+              <input id="adm-pin-confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="Re-enter new PIN" />
+            </div>
+            <div class="adm-field adm-field-checkbox-wrap">
+              <button type="button" class="adm-btn-gold" id="adm-pin-update-btn">Update &amp; Sync PIN</button>
+            </div>
+          </div>
+          <p id="adm-pin-status-msg" class="adm-inline-feedback" role="status" aria-live="polite"></p>
+        </div>
+
+        <div class="adm-card" id="adm-sizeguide-card">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Storefront Measurements · Synced Worldwide to Cloud</span>
+              <h3>Size Guide Editor</h3>
+            </div>
+            <div class="adm-head-inline-tools">
+              <button type="button" class="adm-btn-secondary" id="adm-sg-reset">Restore Default Measurements</button>
+              <button type="button" class="adm-btn-gold" id="adm-sg-save-sync">Save &amp; Sync Size Guide</button>
+            </div>
+          </div>
+
+          <p class="adm-help">
+            Customize Chest, Shoulder, Sleeve, Waist, Inseam, and EU Shoe measurements shown in the customer Size Guide modal. Changes sync live to JSONBin Cloud.
+          </p>
+
+          <div class="adm-sg-stack">
+            <div class="adm-sg-group">
+              <h4>Apparel: Shirts, Waistcoats &amp; Coats (S–XL)</h4>
+              <div class="adm-sg-table-wrap">
+                <table class="adm-sg-table">
+                  <thead>
+                    <tr>
+                      <th>Size</th>
+                      <th>Chest</th>
+                      <th>Shoulder</th>
+                      <th>Sleeve</th>
+                      <th>Waist</th>
+                      <th>Length</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${storeState
+                      .getSizeGuide()
+                      .apparel.map(
+                        (r, idx) => `
+                        <tr>
+                          <td><strong>${escapeHtml(r.size)}</strong></td>
+                          <td><input type="text" value="${escapeHtml(r.chest)}" data-adm-sg-apparel="${idx}" data-field="chest" /></td>
+                          <td><input type="text" value="${escapeHtml(r.shoulder)}" data-adm-sg-apparel="${idx}" data-field="shoulder" /></td>
+                          <td><input type="text" value="${escapeHtml(r.sleeve)}" data-adm-sg-apparel="${idx}" data-field="sleeve" /></td>
+                          <td><input type="text" value="${escapeHtml(r.waist)}" data-adm-sg-apparel="${idx}" data-field="waist" /></td>
+                          <td><input type="text" value="${escapeHtml(r.length)}" data-adm-sg-apparel="${idx}" data-field="length" /></td>
+                        </tr>
+                      `
+                      )
+                      .join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="adm-sg-group">
+              <h4>Trousers (Waist 28–34)</h4>
+              <div class="adm-sg-table-wrap">
+                <table class="adm-sg-table">
+                  <thead>
+                    <tr>
+                      <th>Size</th>
+                      <th>Waist</th>
+                      <th>Hip</th>
+                      <th>Inseam</th>
+                      <th>Leg Opening</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${storeState
+                      .getSizeGuide()
+                      .trousers.map(
+                        (r, idx) => `
+                        <tr>
+                          <td><strong>${escapeHtml(r.size)}</strong></td>
+                          <td><input type="text" value="${escapeHtml(r.waist)}" data-adm-sg-trouser="${idx}" data-field="waist" /></td>
+                          <td><input type="text" value="${escapeHtml(r.hip)}" data-adm-sg-trouser="${idx}" data-field="hip" /></td>
+                          <td><input type="text" value="${escapeHtml(r.inseam)}" data-adm-sg-trouser="${idx}" data-field="inseam" /></td>
+                          <td><input type="text" value="${escapeHtml(r.legOpening)}" data-adm-sg-trouser="${idx}" data-field="legOpening" /></td>
+                        </tr>
+                      `
+                      )
+                      .join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="adm-sg-group">
+              <h4>Shoes (EU 40–46)</h4>
+              <div class="adm-sg-table-wrap">
+                <table class="adm-sg-table">
+                  <thead>
+                    <tr>
+                      <th>EU</th>
+                      <th>US Men</th>
+                      <th>UK</th>
+                      <th>Foot Length</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${storeState
+                      .getSizeGuide()
+                      .shoes.map(
+                        (r, idx) => `
+                        <tr>
+                          <td><input type="text" value="${escapeHtml(r.eu)}" data-adm-sg-shoe="${idx}" data-field="eu" /></td>
+                          <td><input type="text" value="${escapeHtml(r.us)}" data-adm-sg-shoe="${idx}" data-field="us" /></td>
+                          <td><input type="text" value="${escapeHtml(r.uk)}" data-adm-sg-shoe="${idx}" data-field="uk" /></td>
+                          <td><input type="text" value="${escapeHtml(r.cm)}" data-adm-sg-shoe="${idx}" data-field="cm" /></td>
+                        </tr>
+                      `
+                      )
+                      .join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="adm-field">
+              <label for="adm-sg-note">Tailor Fit Guidance Note</label>
+              <textarea id="adm-sg-note" rows="2">${escapeHtml(storeState.getSizeGuide().note)}</textarea>
+            </div>
           </div>
         </div>
 
@@ -1528,6 +2045,147 @@ export class AdminPanel {
       }
     });
 
+    // Store WhatsApp Number handlers
+    const waInp = document.getElementById('adm-store-whatsapp') as HTMLInputElement | null;
+    const waPreview = document.getElementById('adm-wa-preview-link');
+    const waSaveBtn = document.getElementById('adm-wa-save-sync') as HTMLButtonElement | null;
+
+    waInp?.addEventListener('input', () => {
+      const normalized = sanitizeWhatsappDigits(waInp.value);
+      if (waPreview) waPreview.textContent = `wa.me/${normalized}`;
+    });
+
+    waSaveBtn?.addEventListener('click', async () => {
+      if (!waInp) return;
+      waSaveBtn.disabled = true;
+      waSaveBtn.textContent = 'Syncing...';
+      try {
+        storeState.setStoreWhatsapp(waInp.value);
+        await storeState.saveAllChanges(true);
+        this.showStatus(`Saved Store WhatsApp (${storeState.getStoreWhatsapp()}) & synced to Cloud!`);
+        this.renderSyncAndShowroomTab();
+      } finally {
+        waSaveBtn.disabled = false;
+        waSaveBtn.textContent = 'Save & Sync WhatsApp Number';
+      }
+    });
+
+    // Owner PIN update handlers
+    const pinCurrEl = document.getElementById('adm-pin-current') as HTMLInputElement | null;
+    const pinNewEl = document.getElementById('adm-pin-new') as HTMLInputElement | null;
+    const pinConfEl = document.getElementById('adm-pin-confirm') as HTMLInputElement | null;
+    const pinBtnEl = document.getElementById('adm-pin-update-btn') as HTMLButtonElement | null;
+    const pinMsgEl = document.getElementById('adm-pin-status-msg');
+
+    pinBtnEl?.addEventListener('click', async () => {
+      const curr = pinCurrEl?.value.trim() || '';
+      const next = pinNewEl?.value.trim() || '';
+      const conf = pinConfEl?.value.trim() || '';
+      const setInline = (msg: string, isError: boolean) => {
+        if (!pinMsgEl) return;
+        pinMsgEl.textContent = msg;
+        pinMsgEl.classList.toggle('is-error', isError);
+        pinMsgEl.classList.toggle('is-ok', !isError);
+      };
+
+      if (!storeState.verifyPin(curr)) {
+        setInline('Current Owner PIN does not match.', true);
+        pinCurrEl?.focus();
+        return;
+      }
+      if (!/^\d{4,6}$/.test(next)) {
+        setInline('New PIN must be 4 to 6 numeric digits (0–9).', true);
+        pinNewEl?.focus();
+        return;
+      }
+      if (next !== conf) {
+        setInline('New PIN and confirmation do not match.', true);
+        pinConfEl?.focus();
+        return;
+      }
+
+      pinBtnEl.disabled = true;
+      pinBtnEl.textContent = 'Updating PIN...';
+      try {
+        const res = await storeState.updateAdminPin(next);
+        setInline(res.message, !res.ok);
+        this.showStatus(res.message);
+        if (res.ok) {
+          if (pinCurrEl) pinCurrEl.value = '';
+          if (pinNewEl) pinNewEl.value = '';
+          if (pinConfEl) pinConfEl.value = '';
+        }
+      } finally {
+        pinBtnEl.disabled = false;
+        pinBtnEl.textContent = 'Update & Sync PIN';
+      }
+    });
+
+    // Editable Size Guide handlers
+    const readSizeGuideDraft = () => {
+      const next = JSON.parse(JSON.stringify(storeState.getSizeGuide())) as ReturnType<
+        typeof storeState.getSizeGuide
+      >;
+      this.dashboardBody?.querySelectorAll<HTMLInputElement>('[data-adm-sg-apparel]').forEach((inp) => {
+        const idx = Number(inp.dataset.admSgApparel);
+        const field = inp.dataset.field as keyof (typeof next.apparel)[number] | undefined;
+        if (next.apparel[idx] && field) {
+          next.apparel[idx][field] = inp.value.trim();
+        }
+      });
+      this.dashboardBody?.querySelectorAll<HTMLInputElement>('[data-adm-sg-trouser]').forEach((inp) => {
+        const idx = Number(inp.dataset.admSgTrouser);
+        const field = inp.dataset.field as keyof (typeof next.trousers)[number] | undefined;
+        if (next.trousers[idx] && field) {
+          next.trousers[idx][field] = inp.value.trim();
+        }
+      });
+      this.dashboardBody?.querySelectorAll<HTMLInputElement>('[data-adm-sg-shoe]').forEach((inp) => {
+        const idx = Number(inp.dataset.admSgShoe);
+        const field = inp.dataset.field as keyof (typeof next.shoes)[number] | undefined;
+        if (next.shoes[idx] && field) {
+          next.shoes[idx][field] = inp.value.trim();
+        }
+      });
+      const noteEl = document.getElementById('adm-sg-note') as HTMLTextAreaElement | null;
+      if (noteEl && noteEl.value.trim()) {
+        next.note = noteEl.value.trim();
+      }
+      return next;
+    };
+
+    const sgInputs = this.dashboardBody.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+      '[data-adm-sg-apparel], [data-adm-sg-trouser], [data-adm-sg-shoe], #adm-sg-note'
+    );
+    sgInputs.forEach((inp) => {
+      inp.addEventListener('change', () => {
+        this.suppressNextStoreRender = true;
+        storeState.updateSizeGuide(readSizeGuideDraft());
+        this.suppressNextStoreRender = false;
+        this.showStatus('Updated Size Guide measurement live.');
+      });
+    });
+
+    const sgSaveBtn = document.getElementById('adm-sg-save-sync') as HTMLButtonElement | null;
+    sgSaveBtn?.addEventListener('click', async () => {
+      sgSaveBtn.disabled = true;
+      sgSaveBtn.textContent = 'Syncing...';
+      try {
+        storeState.updateSizeGuide(readSizeGuideDraft());
+        await storeState.saveAllChanges(true);
+        this.showStatus('Saved Size Guide measurements & synced to Cloud!');
+      } finally {
+        sgSaveBtn.disabled = false;
+        sgSaveBtn.textContent = 'Save & Sync Size Guide';
+      }
+    });
+
+    document.getElementById('adm-sg-reset')?.addEventListener('click', () => {
+      storeState.resetSizeGuideDefault();
+      this.renderSyncAndShowroomTab();
+      this.showStatus('Restored default Size Guide measurements.');
+    });
+
     const wireShowroomField = (id: string, key: keyof typeof DEFAULT_SHOWROOM) => {
       const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
       el?.addEventListener('change', () => {
@@ -1547,6 +2205,618 @@ export class AdminPanel {
       storeState.updateShowroom(DEFAULT_SHOWROOM);
       this.renderSyncAndShowroomTab();
       this.showStatus('Restored default Gujranwala Flagship Showroom address & Google Map.');
+    });
+  }
+
+  // =========================================================================
+  // TAB 5: LIVE CLOUD ORDERS & SALES ANALYTICS DASHBOARD
+  // =========================================================================
+  private buildCustomerWhatsappHref(order: StoreOrder): string {
+    const custDigits = sanitizeWhatsappDigits(order.phone, '');
+    if (!custDigits) return '#';
+    const msg = [
+      `Assalam-o-Alaikum ${order.customerName},`,
+      `Thank you for shopping with *GR SON'S Atelier* (Gujranwala).`,
+      `Your Cash on Delivery Order *#${order.orderNumber}* (${formatMoney(order.total)}) is currently *${order.status}*.`,
+      `Delivery Address: ${order.address}`,
+    ].join('\n');
+    return `https://wa.me/${custDigits}?text=${encodeURIComponent(msg)}`;
+  }
+
+  private formatCompactPkr(amount: number): string {
+    if (amount <= 0) return '0';
+    if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (amount >= 1_000) return `${Math.round(amount / 1_000)}k`;
+    return String(Math.round(amount));
+  }
+
+  private buildSmoothCurvePath(
+    pts: { x: number; y: number }[],
+    minY = -Infinity,
+    maxY = Infinity
+  ): string {
+    if (pts.length === 0) return '';
+    if (pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    const clampY = (val: number) => Math.max(minY, Math.min(maxY, val));
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = clampY(p1.y + (p2.y - p0.y) / 6);
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = clampY(p2.y - (p3.y - p1.y) / 6);
+      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+
+  private renderOrdersTab(): void {
+    if (!this.dashboardBody) return;
+    const allOrders = storeState.getOrders();
+
+    // KPI computations
+    const totalRevenue = allOrders.reduce((sum, o) => sum + o.total, 0);
+    const totalOrdersCount = allOrders.length;
+    const pendingCount = allOrders.filter((o) => o.status === 'Pending').length;
+    const dispatchedCount = allOrders.filter((o) => o.status === 'Dispatched').length;
+    const deliveredCount = allOrders.filter((o) => o.status === 'Delivered').length;
+
+    // Multi-timeframe buckets: Days (7d), Weeks (6w), Months (6m)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const buckets: { key: string; label: string; revenue: number; count: number }[] = [];
+
+    if (this.orderTimeframe === 'days') {
+      const sampleRevs = [24500, 42000, 36500, 61000, 52000, 78500, 94000];
+      const sampleCounts = [1, 2, 2, 3, 2, 4, 5];
+      for (let offset = 6; offset >= 0; offset--) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - offset);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const label = offset === 0 ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short' });
+        const idx = 6 - offset;
+        buckets.push({
+          key,
+          label,
+          revenue: this.previewSampleSales ? sampleRevs[idx] : 0,
+          count: this.previewSampleSales ? sampleCounts[idx] : 0,
+        });
+      }
+      const bMap = new Map(buckets.map((b) => [b.key, b]));
+      for (const order of allOrders) {
+        const dt = new Date(order.createdAt);
+        if (Number.isNaN(dt.getTime())) continue;
+        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        const bucket = bMap.get(key);
+        if (bucket) {
+          bucket.revenue += order.total;
+          bucket.count += 1;
+        }
+      }
+    } else if (this.orderTimeframe === 'weeks') {
+      const sampleRevs = [32000, 54000, 46000, 72000, 65000, 92000];
+      const sampleCounts = [2, 3, 3, 4, 4, 5];
+      for (let wOff = 5; wOff >= 0; wOff--) {
+        const label = wOff === 0 ? 'This Wk' : `${wOff}w ago`;
+        const idx = 5 - wOff;
+        buckets.push({
+          key: `w-${wOff}`,
+          label,
+          revenue: this.previewSampleSales ? sampleRevs[idx] : 0,
+          count: this.previewSampleSales ? sampleCounts[idx] : 0,
+        });
+      }
+      for (const order of allOrders) {
+        const dt = new Date(order.createdAt);
+        if (Number.isNaN(dt.getTime())) continue;
+        const dayDiff = Math.floor((today.getTime() - new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime()) / 86_400_000);
+        const wOff = Math.floor(Math.max(0, dayDiff) / 7);
+        if (wOff <= 5) {
+          const target = buckets[5 - wOff];
+          if (target) {
+            target.revenue += order.total;
+            target.count += 1;
+          }
+        }
+      }
+    } else {
+      const sampleRevs = [48000, 62000, 55000, 76000, 84000, 98000];
+      const sampleCounts = [3, 4, 3, 5, 5, 6];
+      for (let mOff = 5; mOff >= 0; mOff--) {
+        const d = new Date(today.getFullYear(), today.getMonth() - mOff, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const label = d.toLocaleDateString('en-US', { month: 'short' });
+        const idx = 5 - mOff;
+        buckets.push({
+          key,
+          label,
+          revenue: this.previewSampleSales ? sampleRevs[idx] : 0,
+          count: this.previewSampleSales ? sampleCounts[idx] : 0,
+        });
+      }
+      const mMap = new Map(buckets.map((b) => [b.key, b]));
+      for (const order of allOrders) {
+        const dt = new Date(order.createdAt);
+        if (Number.isNaN(dt.getTime())) continue;
+        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+        const bucket = mMap.get(key);
+        if (bucket) {
+          bucket.revenue += order.total;
+          bucket.count += 1;
+        }
+      }
+    }
+
+    if (this.selectedChartDayIdx >= buckets.length) {
+      this.selectedChartDayIdx = buckets.length - 1;
+    }
+
+    const rawMax = Math.max(...buckets.map((b) => b.revenue), 0);
+    const tickValues =
+      rawMax <= 100_000
+        ? [0, 25_000, 50_000, 100_000]
+        : (() => {
+            const top = Math.ceil((rawMax * 1.15) / 100_000) * 100_000;
+            return [0, Math.round(top * 0.25), Math.round(top * 0.5), top];
+          })();
+    const scaleMax = tickValues[tickValues.length - 1];
+
+    const chartW = 580;
+    const chartH = 228;
+    const padL = 74;
+    const padR = 24;
+    const padT = 22;
+    const padB = 34;
+    const plotW = chartW - padL - padR;
+    const plotH = chartH - padT - padB;
+    const baseLineY = padT + plotH;
+    const stepX = buckets.length > 1 ? plotW / (buckets.length - 1) : plotW;
+    const hitW = buckets.length > 1 ? Math.max(36, plotW / buckets.length) : plotW;
+
+    const coords = buckets.map((b, idx) => {
+      const cx = buckets.length > 1 ? padL + stepX * idx : padL + plotW / 2;
+      const ratio = scaleMax > 0 ? Math.min(1, Math.max(0, b.revenue / scaleMax)) : 0;
+      const cy = baseLineY - ratio * plotH;
+      return { x: cx, y: cy };
+    });
+
+    const linePath = this.buildSmoothCurvePath(coords, padT, baseLineY);
+    const areaPath =
+      coords.length > 0
+        ? `${linePath} L ${coords[coords.length - 1].x.toFixed(1)} ${baseLineY.toFixed(1)} L ${coords[0].x.toFixed(1)} ${baseLineY.toFixed(1)} Z`
+        : '';
+
+    const gridLinesHtml = tickValues
+      .map((val) => {
+        const frac = scaleMax > 0 ? val / scaleMax : 0;
+        const y = baseLineY - plotH * frac;
+        const label = `PKR ${this.formatCompactPkr(val)}`;
+        return `
+          <line x1="${padL}" y1="${y.toFixed(1)}" x2="${chartW - padR}" y2="${y.toFixed(1)}" class="${val === 0 ? 'adm-chart-axis' : 'adm-chart-gridline'}" />
+          <text x="${padL - 10}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" class="adm-chart-ylabel">${escapeHtml(label)}</text>
+        `;
+      })
+      .join('');
+
+    const svgNodesHtml = buckets
+      .map((b, idx) => {
+        const pt = coords[idx];
+        const hitX = Math.max(padL - 12, pt.x - hitW / 2);
+        const hitWidth = Math.min(chartW - padR + 12 - hitX, hitW);
+        const isSelected = idx === this.selectedChartDayIdx;
+        return `
+          <g class="adm-chart-col${isSelected ? ' is-selected' : ''}" data-chart-day="${idx}" tabindex="0" role="button" aria-label="${escapeHtml(b.label)}: ${formatMoney(b.revenue)} across ${b.count} ${b.count === 1 ? 'order' : 'orders'}">
+            <line x1="${pt.x.toFixed(1)}" y1="${padT}" x2="${pt.x.toFixed(1)}" y2="${baseLineY}" class="adm-chart-vguide" />
+            <rect x="${hitX.toFixed(1)}" y="${padT - 8}" width="${Math.max(24, hitWidth).toFixed(1)}" height="${plotH + 34}" fill="transparent" />
+            <circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="${isSelected ? '11' : '8.5'}" class="adm-chart-halo" />
+            <circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="${isSelected ? '5.2' : '4'}" class="adm-chart-dot${b.revenue > 0 ? ' has-value' : ''}" filter="url(#adm-node-glow)" />
+            <text x="${pt.x.toFixed(1)}" y="${chartH - 10}" text-anchor="middle" class="adm-chart-xlabel">${escapeHtml(b.label)}</text>
+            <title>${escapeHtml(b.label)}: ${formatMoney(b.revenue)} (${b.count} ${b.count === 1 ? 'order' : 'orders'})</title>
+          </g>
+        `;
+      })
+      .join('');
+
+    const activeDay = buckets[this.selectedChartDayIdx] || buckets[buckets.length - 1];
+    const timeframeTitle =
+      this.orderTimeframe === 'days'
+        ? '7-Day Sales Trend (PKR)'
+        : this.orderTimeframe === 'weeks'
+          ? '6-Week Sales Trend (PKR)'
+          : '6-Month Sales Trend (PKR)';
+
+    // Category revenue breakdown (dynamic from storefront categories + any historical order categories)
+    const catTotals: Record<string, { label: string; revenue: number; units: number }> = {};
+    for (const c of storeState.getCategories()) {
+      catTotals[c.id] = { label: c.label, revenue: 0, units: 0 };
+    }
+    for (const order of allOrders) {
+      for (const it of order.items) {
+        const key = (it.storeCategory || 'shirts').trim() || 'shirts';
+        if (!catTotals[key]) {
+          catTotals[key] = {
+            label: storeState.getCategoryLabel(key),
+            revenue: 0,
+            units: 0,
+          };
+        }
+        catTotals[key].revenue += it.totalPrice;
+        catTotals[key].units += it.quantity;
+      }
+    }
+    const catRows = Object.values(catTotals);
+    const maxCatRev = Math.max(1, ...catRows.map((c) => c.revenue));
+    const catBarsHtml = catRows
+      .map((c) => {
+        const pct = c.revenue > 0 ? Math.max(6, Math.round((c.revenue / maxCatRev) * 100)) : 0;
+        return `
+          <div class="adm-cat-bar-row">
+            <div class="adm-cat-bar-meta">
+              <span>${escapeHtml(c.label)}</span>
+              <strong>${formatMoney(c.revenue)} <small>(${c.units} pcs)</small></strong>
+            </div>
+            <div class="adm-cat-bar-track">
+              <div class="adm-cat-bar-fill" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    // Filtered orders list
+    const filteredOrders =
+      this.orderStatusFilter === 'All'
+        ? allOrders
+        : allOrders.filter((o) => o.status === this.orderStatusFilter);
+
+    const filterTabs: { id: 'All' | OrderStatus; label: string; count: number }[] = [
+      { id: 'All', label: 'All Orders', count: totalOrdersCount },
+      { id: 'Pending', label: 'Pending', count: pendingCount },
+      { id: 'Dispatched', label: 'Dispatched', count: dispatchedCount },
+      { id: 'Delivered', label: 'Delivered', count: deliveredCount },
+    ];
+
+    const filterBtnsHtml = filterTabs
+      .map((f) => {
+        const active = f.id === this.orderStatusFilter;
+        return `<button type="button" class="adm-chip" data-adm-order-filter="${f.id}" aria-pressed="${active ? 'true' : 'false'}">${escapeHtml(f.label)} (${f.count})</button>`;
+      })
+      .join('');
+
+    const ordersHtml =
+      filteredOrders.length > 0
+        ? filteredOrders
+            .map((order) => {
+              const dtStr = new Date(order.createdAt).toLocaleString('en-PK', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              });
+              const itemsListHtml = order.items
+                .map(
+                  (it) =>
+                    `<li><span>${escapeHtml(it.name)} <em>(${escapeHtml(it.size || 'Std')} × ${it.quantity})</em></span><strong>${formatMoney(it.totalPrice)}</strong></li>`
+                )
+                .join('');
+              const statusButtons = (['Pending', 'Dispatched', 'Delivered'] as OrderStatus[])
+                .map((st) => {
+                  const isCurr = order.status === st;
+                  return `<button type="button" class="adm-order-st-btn${isCurr ? ' is-current' : ''}" data-adm-order-id="${escapeHtml(order.id)}" data-adm-order-status="${st}" aria-pressed="${isCurr ? 'true' : 'false'}">${st}</button>`;
+                })
+                .join('');
+              const waHref = this.buildCustomerWhatsappHref(order);
+              const isConfirmDel = this.pendingDeleteOrderIds.has(order.id);
+
+              return `
+                <article class="adm-order-card" data-order-id="${escapeHtml(order.id)}">
+                  <div class="adm-order-top">
+                    <div class="adm-order-id-wrap">
+                      <span class="adm-order-num">#${escapeHtml(order.orderNumber)}</span>
+                      <span class="adm-order-date">${escapeHtml(dtStr)}</span>
+                    </div>
+                    <div class="adm-order-top-right">
+                      <span class="adm-order-badge is-${order.status.toLowerCase()}">${escapeHtml(order.status)}</span>
+                      <button
+                        type="button"
+                        class="adm-order-del-btn${isConfirmDel ? ' is-confirming' : ''}"
+                        data-adm-order-del="${escapeHtml(order.id)}"
+                        title="${isConfirmDel ? 'Click again to delete permanently' : 'Delete test order'}"
+                        aria-label="Delete order ${escapeHtml(order.orderNumber)}"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6" />
+                        </svg>
+                        <span>${isConfirmDel ? 'Confirm?' : 'Delete'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="adm-order-customer">
+                    <div>
+                      <strong>${escapeHtml(order.customerName)}</strong>
+                      <span>${escapeHtml(order.phone)}</span>
+                    </div>
+                    <p>${escapeHtml(order.address)}</p>
+                  </div>
+
+                  <ul class="adm-order-items" role="list">${itemsListHtml}</ul>
+
+                  <div class="adm-order-footer">
+                    <div class="adm-order-total-block">
+                      <small>Cash on Delivery Total</small>
+                      <strong>${formatMoney(order.total)}</strong>
+                    </div>
+                    <div class="adm-order-actions">
+                      <div class="adm-order-status-group" role="group" aria-label="Change order status for ${escapeHtml(order.orderNumber)}">
+                        ${statusButtons}
+                      </div>
+                      ${
+                        waHref !== '#'
+                          ? `<a class="adm-wa-customer-btn" href="${escapeHtml(waHref)}" target="_blank" rel="noopener noreferrer">
+                              <svg class="wa-official-svg" width="15" height="15" viewBox="0 0 32 32" aria-hidden="true">
+                                <path fill="#25D366" d="M16 3C8.82 3 3 8.82 3 16c0 2.47.7 4.78 1.9 6.75L3.6 28.4l5.8-1.52A12.93 12.93 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" />
+                                <path fill="#ffffff" d="M23.02 19.65c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.93-2.25-.25-.6-.5-.52-.68-.53h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35z" />
+                              </svg>
+                              <span>WhatsApp Customer</span>
+                            </a>`
+                          : ''
+                      }
+                    </div>
+                  </div>
+                </article>
+              `;
+            })
+            .join('')
+        : `
+          <div class="adm-orders-empty">
+            <strong>No ${this.orderStatusFilter === 'All' ? '' : `${this.orderStatusFilter.toLowerCase()} `}orders recorded yet.</strong>
+            <p>When shoppers complete Cash on Delivery checkout in the Shopping Bag, orders appear here and sync automatically to your JSONBin Cloud.</p>
+          </div>
+        `;
+
+    this.dashboardBody.innerHTML = `
+      <div class="adm-section">
+        <div class="adm-card">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Live JSONBin Cloud Orders · PKR Analytics</span>
+              <h3>Orders &amp; Commercial Sales Dashboard</h3>
+            </div>
+            <button type="button" class="adm-btn-secondary" id="adm-orders-refresh">
+              Pull Latest Cloud Orders
+            </button>
+          </div>
+
+          <div class="adm-kpi-grid">
+            <div class="adm-kpi-card adm-kpi-card--gold">
+              <span class="adm-kpi-label">Total Revenue (PKR)</span>
+              <strong class="adm-kpi-value">${formatMoney(totalRevenue)}</strong>
+              <small class="adm-kpi-sub">Across all live COD orders</small>
+            </div>
+            <div class="adm-kpi-card">
+              <span class="adm-kpi-label">Total Orders</span>
+              <strong class="adm-kpi-value">${totalOrdersCount}</strong>
+              <small class="adm-kpi-sub">${dispatchedCount} currently in transit</small>
+            </div>
+            <div class="adm-kpi-card">
+              <span class="adm-kpi-label">Pending Dispatch</span>
+              <strong class="adm-kpi-value">${pendingCount}</strong>
+              <small class="adm-kpi-sub">Awaiting tailoring / packing</small>
+            </div>
+            <div class="adm-kpi-card">
+              <span class="adm-kpi-label">Delivered Orders</span>
+              <strong class="adm-kpi-value">${deliveredCount}</strong>
+              <small class="adm-kpi-sub">Completed COD handovers</small>
+            </div>
+          </div>
+
+          <div class="adm-analytics-grid">
+            <div class="adm-chart-panel">
+              <div class="adm-chart-head">
+                <div>
+                  <span class="adm-step-label">${timeframeTitle}${this.previewSampleSales ? ' · Sample Preview' : ''}</span>
+                  <strong id="adm-chart-detail" class="adm-chart-detail">
+                    ${escapeHtml(activeDay.label)}: ${formatMoney(activeDay.revenue)} (${activeDay.count} ${activeDay.count === 1 ? 'order' : 'orders'})
+                  </strong>
+                </div>
+                <div class="adm-chart-controls">
+                  <div class="adm-tf-group" role="group" aria-label="Sales chart timeframe">
+                    <button type="button" class="adm-tf-btn" data-chart-tf="days" aria-pressed="${this.orderTimeframe === 'days' ? 'true' : 'false'}">Days</button>
+                    <button type="button" class="adm-tf-btn" data-chart-tf="weeks" aria-pressed="${this.orderTimeframe === 'weeks' ? 'true' : 'false'}">Weeks</button>
+                    <button type="button" class="adm-tf-btn" data-chart-tf="months" aria-pressed="${this.orderTimeframe === 'months' ? 'true' : 'false'}">Months</button>
+                  </div>
+                  <button
+                    type="button"
+                    id="adm-chart-sample-toggle"
+                    class="adm-sample-btn${this.previewSampleSales ? ' is-active' : ''}"
+                    aria-pressed="${this.previewSampleSales ? 'true' : 'false'}"
+                  >
+                    ${this.previewSampleSales ? 'Hide Sample' : 'Sample Preview'}
+                  </button>
+                </div>
+              </div>
+              <div class="adm-chart-stage" id="adm-chart-stage">
+                <svg class="adm-sales-svg" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="${escapeHtml(timeframeTitle)} smooth revenue line and area chart">
+                  <defs>
+                    <linearGradient id="adm-sales-area-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#10B981" stop-opacity="0.38" />
+                      <stop offset="52%" stop-color="#C8A464" stop-opacity="0.22" />
+                      <stop offset="100%" stop-color="#161513" stop-opacity="0.02" />
+                    </linearGradient>
+                    <linearGradient id="adm-sales-line-grad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stop-color="#C8A464" />
+                      <stop offset="55%" stop-color="#E5C585" />
+                      <stop offset="100%" stop-color="#10B981" />
+                    </linearGradient>
+                    <filter id="adm-node-glow" x="-80%" y="-80%" width="260%" height="260%">
+                      <feGaussianBlur stdDeviation="2.6" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
+                  ${gridLinesHtml}
+                  <path d="${areaPath}" fill="url(#adm-sales-area-grad)" />
+                  <path d="${linePath}" fill="none" stroke="url(#adm-sales-line-grad)" class="adm-chart-trend" />
+                  ${svgNodesHtml}
+                </svg>
+                <div class="adm-chart-tooltip" id="adm-chart-tooltip" hidden role="status" aria-live="polite">
+                  <span class="adm-tt-label" id="adm-tt-label"></span>
+                  <strong class="adm-tt-rev" id="adm-tt-rev"></strong>
+                  <small class="adm-tt-orders" id="adm-tt-orders"></small>
+                </div>
+              </div>
+            </div>
+
+            <div class="adm-chart-panel">
+              <div class="adm-chart-head">
+                <div>
+                  <span class="adm-step-label">Category Revenue Breakdown</span>
+                  <strong class="adm-chart-detail">Top Performing Menswear Lines</strong>
+                </div>
+              </div>
+              <div class="adm-cat-bars">${catBarsHtml}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-card">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Live Customer Queue · One-Click Dispatch</span>
+              <h3>Customer COD Orders (${filteredOrders.length})</h3>
+            </div>
+            <div class="adm-chips">${filterBtnsHtml}</div>
+          </div>
+
+          <div class="adm-orders-list">${ordersHtml}</div>
+        </div>
+      </div>
+    `;
+
+    // Timeframe switcher (Days / Weeks / Months)
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-chart-tf]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tf = btn.dataset.chartTf as 'days' | 'weeks' | 'months' | undefined;
+        if (!tf) return;
+        this.orderTimeframe = tf;
+        this.selectedChartDayIdx = tf === 'days' ? 6 : 5;
+        this.renderOrdersTab();
+      });
+    });
+
+    // Sample Preview Toggle
+    document.getElementById('adm-chart-sample-toggle')?.addEventListener('click', () => {
+      this.previewSampleSales = !this.previewSampleSales;
+      this.renderOrdersTab();
+    });
+
+    // Wire interactive smooth chart nodes & hover tooltip
+    const chartStage = document.getElementById('adm-chart-stage');
+    const tooltipEl = document.getElementById('adm-chart-tooltip');
+    const ttLabel = document.getElementById('adm-tt-label');
+    const ttRev = document.getElementById('adm-tt-rev');
+    const ttOrders = document.getElementById('adm-tt-orders');
+
+    const updateTooltipPosition = (idx: number, show: boolean) => {
+      const d = buckets[idx];
+      const pt = coords[idx];
+      if (!tooltipEl || !d || !pt) return;
+      if (!show) {
+        tooltipEl.hidden = true;
+        return;
+      }
+      if (ttLabel) ttLabel.textContent = d.label;
+      if (ttRev) ttRev.textContent = formatMoney(d.revenue);
+      if (ttOrders) ttOrders.textContent = `${d.count} ${d.count === 1 ? 'order' : 'orders'}`;
+      const xPct = Math.min(86, Math.max(14, (pt.x / chartW) * 100));
+      const yPct = Math.min(72, Math.max(12, (pt.y / chartH) * 100));
+      tooltipEl.style.left = `${xPct.toFixed(1)}%`;
+      tooltipEl.style.top = `${yPct.toFixed(1)}%`;
+      tooltipEl.hidden = false;
+    };
+
+    this.dashboardBody.querySelectorAll<SVGElement>('[data-chart-day]').forEach((col) => {
+      const idx = Number(col.dataset.chartDay || 0);
+      const selectDay = (showTooltip: boolean) => {
+        this.selectedChartDayIdx = idx;
+        this.dashboardBody?.querySelectorAll('.adm-chart-col').forEach((c, i) => {
+          c.classList.toggle('is-selected', i === idx);
+        });
+        const d = buckets[idx];
+        const detailEl = document.getElementById('adm-chart-detail');
+        if (detailEl && d) {
+          detailEl.textContent = `${d.label}: ${formatMoney(d.revenue)} (${d.count} ${d.count === 1 ? 'order' : 'orders'})`;
+        }
+        updateTooltipPosition(idx, showTooltip);
+      };
+      col.addEventListener('click', () => selectDay(true));
+      col.addEventListener('mouseenter', () => selectDay(true));
+      col.addEventListener('focus', () => selectDay(true));
+    });
+
+    chartStage?.addEventListener('mouseleave', () => {
+      if (tooltipEl) tooltipEl.hidden = true;
+    });
+
+    // Pull latest cloud orders button
+    const refreshBtn = document.getElementById('adm-orders-refresh') as HTMLButtonElement | null;
+    refreshBtn?.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing...';
+      try {
+        const res = await storeState.pullFromCloud();
+        this.showStatus(res.ok ? 'Refreshed latest live orders from Cloud!' : res.message);
+        this.renderOrdersTab();
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = 'Pull Latest Cloud Orders';
+      }
+    });
+
+    // Filter pills
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-order-filter]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.orderStatusFilter = (btn.dataset.admOrderFilter || 'All') as 'All' | OrderStatus;
+        this.renderOrdersTab();
+      });
+    });
+
+    // One-click order status updates (persist + sync to cloud)
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-order-status]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const orderId = btn.dataset.admOrderId;
+        const nextStatus = btn.dataset.admOrderStatus as OrderStatus | undefined;
+        if (!orderId || !nextStatus) return;
+        btn.disabled = true;
+        await storeState.updateOrderStatus(orderId, nextStatus);
+        this.showStatus(`Order status updated to "${nextStatus}" & synced to Cloud.`);
+      });
+    });
+
+    // Trash / Delete order button (2-click safe confirm + cloud sync)
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-order-del]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const orderId = btn.dataset.admOrderDel;
+        if (!orderId) return;
+        if (!this.pendingDeleteOrderIds.has(orderId)) {
+          this.pendingDeleteOrderIds.add(orderId);
+          this.renderOrdersTab();
+          window.setTimeout(() => {
+            if (this.pendingDeleteOrderIds.delete(orderId) && this.activeTab === 'orders') {
+              this.renderOrdersTab();
+            }
+          }, 4000);
+          return;
+        }
+        this.pendingDeleteOrderIds.delete(orderId);
+        btn.disabled = true;
+        await storeState.deleteOrder(orderId);
+        this.showStatus('Order removed & synced cleanly to JSONBin Cloud.');
+      });
     });
   }
 }

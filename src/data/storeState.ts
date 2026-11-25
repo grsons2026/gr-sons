@@ -1,30 +1,58 @@
 import {
   CatalogItem,
+  CategorySizePreset,
   CloudSyncConfig,
   CustomLookPiece,
+  DEFAULT_ADMIN_PIN,
   DEFAULT_CATALOG_ITEMS,
   DEFAULT_CLOUD_SYNC,
   DEFAULT_HERO_BANNER,
   DEFAULT_HERO_SLIDES,
   DEFAULT_LOOKS,
   DEFAULT_SHOWROOM,
+  DEFAULT_SIZE_GUIDE,
+  DEFAULT_STORE_CATEGORIES,
+  DEFAULT_STORE_WHATSAPP,
   HeroBannerConfig,
   HeroSlideConfig,
   LookPieceRef,
+  OrderStatus,
   RunwayLook,
   ShowroomConfig,
+  SizeGuideConfig,
   StoreCategory,
+  StoreCategoryDef,
+  StoreOrder,
+  StoreOrderItem,
   makeVariantsForCategory,
 } from './catalog.ts';
 
 export interface StoreSnapshot {
+  categories?: StoreCategoryDef[];
   products: CatalogItem[];
   looks: RunwayLook[];
   heroBanner: HeroBannerConfig;
   showroom?: ShowroomConfig;
+  sizeGuide?: SizeGuideConfig;
+  orders?: StoreOrder[];
+  storeWhatsapp?: string;
   adminPin?: string;
   showInThisLookGlobal?: boolean;
   updatedAt?: string;
+}
+
+export function sanitizeWhatsappDigits(raw: string, fallback = DEFAULT_STORE_WHATSAPP): string {
+  let digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return fallback;
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  }
+  if (digits.length === 11 && digits.startsWith('03')) {
+    digits = `92${digits.slice(1)}`;
+  } else if (digits.length === 10 && digits.startsWith('3')) {
+    digits = `92${digits}`;
+  }
+  return digits.length >= 9 ? digits : fallback;
 }
 
 type StoreListener = () => void;
@@ -35,7 +63,7 @@ const DB_KEY = 'live-store-v1';
 const LOCAL_SNAPSHOT_KEY = 'runway-atelier-store-v1';
 const PIN_STORAGE_KEY = 'runway-atelier-admin-pin-v1';
 const CLOUD_SYNC_STORAGE_KEY = 'runway-atelier-cloud-sync-v1';
-const DEFAULT_PIN = '1234';
+const DEFAULT_PIN = DEFAULT_ADMIN_PIN;
 
 function cloneDeep<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -164,26 +192,34 @@ function encodeJpegCanvasUnderLimit(
   return best;
 }
 
-function encodeTransparentCanvas(canvas: HTMLCanvasElement, quality = 0.65): string {
+function encodeTransparentCanvas(
+  canvas: HTMLCanvasElement,
+  quality = 0.65,
+  maxChars = MAX_CLOUD_IMAGE_CHARS
+): string {
   try {
-    const qualities = [quality, 0.55, 0.45, 0.35];
+    const qualities = [quality, 0.55, 0.45, 0.35, 0.25];
     for (const q of qualities) {
       const webp = canvas.toDataURL('image/webp', q);
-      if (webp.startsWith('data:image/webp') && webp.length <= MAX_CLOUD_IMAGE_CHARS) {
+      if (webp.startsWith('data:image/webp') && webp.length <= maxChars) {
         return webp;
       }
     }
   } catch {
-    // fallback to JPEG compression under 45KB
+    // fallback to JPEG compression under limit
   }
-  return encodeJpegCanvasUnderLimit(canvas, 700, 0.65, MAX_CLOUD_IMAGE_CHARS, '#ffffff');
+  return encodeJpegCanvasUnderLimit(canvas, maxChars <= 36000 ? 650 : 700, 0.62, maxChars, '#ffffff');
 }
 
-function trimTransparentCanvas(srcCanvas: HTMLCanvasElement, quality = 0.65): string {
+function trimTransparentCanvas(
+  srcCanvas: HTMLCanvasElement,
+  quality = 0.65,
+  maxChars = MAX_CLOUD_IMAGE_CHARS
+): string {
   const w = srcCanvas.width;
   const h = srcCanvas.height;
   const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
-  if (!srcCtx) return encodeTransparentCanvas(srcCanvas, quality);
+  if (!srcCtx) return encodeTransparentCanvas(srcCanvas, quality, maxChars);
 
   const { data } = srcCtx.getImageData(0, 0, w, h);
   let minX = w;
@@ -239,7 +275,7 @@ function trimTransparentCanvas(srcCanvas: HTMLCanvasElement, quality = 0.65): st
   }
 
   if (maxX <= minX || maxY <= minY) {
-    return encodeTransparentCanvas(srcCanvas, quality);
+    return encodeTransparentCanvas(srcCanvas, quality, maxChars);
   }
 
   const outW = Math.max(1, maxX - minX + 1);
@@ -249,18 +285,19 @@ function trimTransparentCanvas(srcCanvas: HTMLCanvasElement, quality = 0.65): st
   outCanvas.width = outW;
   outCanvas.height = outH;
   const outCtx = outCanvas.getContext('2d');
-  if (!outCtx) return encodeTransparentCanvas(srcCanvas, quality);
+  if (!outCtx) return encodeTransparentCanvas(srcCanvas, quality, maxChars);
 
   outCtx.clearRect(0, 0, outW, outH);
   outCtx.drawImage(srcCanvas, minX, minY, outW, outH, 0, 0, outW, outH);
-  return encodeTransparentCanvas(outCanvas, quality);
+  return encodeTransparentCanvas(outCanvas, quality, maxChars);
 }
 
 export async function removeBackgroundCanvasBFS(
   file: File,
   maxWidth = 700,
   tolerance = 14,
-  quality = 0.65
+  quality = 0.65,
+  maxChars = MAX_CLOUD_IMAGE_CHARS
 ): Promise<string> {
   const dataUrl = await readOriginalImageFile(file);
   if (typeof document === 'undefined') return dataUrl;
@@ -563,7 +600,7 @@ export async function removeBackgroundCanvasBFS(
         }
 
         ctx.putImageData(imageData, 0, 0);
-        resolve(trimTransparentCanvas(canvas, quality));
+        resolve(trimTransparentCanvas(canvas, quality, maxChars));
       } catch {
         resolve(dataUrl);
       }
@@ -573,7 +610,12 @@ export async function removeBackgroundCanvasBFS(
   });
 }
 
-export async function compressImageFile(file: File, maxWidth = 700, quality = 0.65): Promise<string> {
+export async function compressImageFile(
+  file: File,
+  maxWidth = 700,
+  quality = 0.65,
+  maxChars = MAX_CLOUD_IMAGE_CHARS
+): Promise<string> {
   const dataUrl = await readOriginalImageFile(file);
   if (typeof document === 'undefined') return dataUrl;
 
@@ -597,7 +639,7 @@ export async function compressImageFile(file: File, maxWidth = 700, quality = 0.
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
-      resolve(encodeJpegCanvasUnderLimit(canvas, targetMaxW, Math.min(0.65, quality), MAX_CLOUD_IMAGE_CHARS, '#ffffff'));
+      resolve(encodeJpegCanvasUnderLimit(canvas, targetMaxW, Math.min(0.65, quality), maxChars, '#ffffff'));
     };
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
@@ -605,10 +647,15 @@ export async function compressImageFile(file: File, maxWidth = 700, quality = 0.
 }
 
 class StoreStateManager {
+  private categories: StoreCategoryDef[] = cloneDeep(DEFAULT_STORE_CATEGORIES);
   private products: CatalogItem[] = cloneDeep(DEFAULT_CATALOG_ITEMS);
   private looks: RunwayLook[] = cloneDeep(DEFAULT_LOOKS);
   private heroBanner: HeroBannerConfig = cloneDeep(DEFAULT_HERO_BANNER);
   private showroom: ShowroomConfig = cloneDeep(DEFAULT_SHOWROOM);
+  private sizeGuide: SizeGuideConfig = cloneDeep(DEFAULT_SIZE_GUIDE);
+  private orders: StoreOrder[] = [];
+  private deletedOrderIds = new Set<string>();
+  private storeWhatsapp: string = DEFAULT_STORE_WHATSAPP;
   private cloudSync: CloudSyncConfig = cloneDeep(DEFAULT_CLOUD_SYNC);
   private adminPin: string = DEFAULT_PIN;
   private showInThisLookGlobal = true;
@@ -652,6 +699,29 @@ class StoreStateManager {
   private applySnapshot(saved: StoreSnapshot | null): void {
     if (!saved) return;
 
+    if (Array.isArray(saved.categories) && saved.categories.length > 0) {
+      const seen = new Set<string>();
+      const cleaned: StoreCategoryDef[] = [];
+      for (const raw of saved.categories) {
+        if (!raw || typeof raw.id !== 'string' || typeof raw.label !== 'string') continue;
+        const id = raw.id.trim();
+        const label = raw.label.trim();
+        if (!id || id === 'all' || !label || seen.has(id)) continue;
+        seen.add(id);
+        const preset: CategorySizePreset | undefined =
+          raw.sizePreset === 'trousers' ||
+          raw.sizePreset === 'shoes' ||
+          raw.sizePreset === 'one-size' ||
+          raw.sizePreset === 'apparel'
+            ? raw.sizePreset
+            : undefined;
+        cleaned.push(preset ? { id, label, sizePreset: preset } : { id, label });
+      }
+      if (cleaned.length > 0) {
+        this.categories = cleaned;
+      }
+    }
+
     if (Array.isArray(saved.products) && saved.products.length > 0) {
       const freshById = new Map(DEFAULT_CATALOG_ITEMS.map((item) => [item.id, item.image]));
       this.products = saved.products.map((p) => {
@@ -666,6 +736,13 @@ class StoreStateManager {
           if (v.id >= this.nextVariantBase) {
             this.nextVariantBase = v.id + 100;
           }
+        }
+        const catId = String(p.storeCategory || '').trim();
+        if (catId && catId !== 'all' && !this.categories.some((c) => c.id === catId)) {
+          this.categories.push({
+            id: catId,
+            label: this.formatCategoryFallbackLabel(catId),
+          });
         }
       }
     }
@@ -694,12 +771,98 @@ class StoreStateManager {
     if (saved.showroom && typeof saved.showroom === 'object') {
       this.showroom = { ...cloneDeep(DEFAULT_SHOWROOM), ...saved.showroom };
     }
-    if (typeof saved.adminPin === 'string' && saved.adminPin.trim().length >= 4) {
+    if (saved.sizeGuide && typeof saved.sizeGuide === 'object') {
+      const sg = saved.sizeGuide;
+      this.sizeGuide = {
+        apparel: Array.isArray(sg.apparel) && sg.apparel.length > 0 ? cloneDeep(sg.apparel) : cloneDeep(DEFAULT_SIZE_GUIDE.apparel),
+        trousers: Array.isArray(sg.trousers) && sg.trousers.length > 0 ? cloneDeep(sg.trousers) : cloneDeep(DEFAULT_SIZE_GUIDE.trousers),
+        shoes: Array.isArray(sg.shoes) && sg.shoes.length > 0 ? cloneDeep(sg.shoes) : cloneDeep(DEFAULT_SIZE_GUIDE.shoes),
+        note: typeof sg.note === 'string' && sg.note.trim() ? sg.note : DEFAULT_SIZE_GUIDE.note,
+      };
+    }
+    if (typeof saved.storeWhatsapp === 'string' && saved.storeWhatsapp.trim()) {
+      this.storeWhatsapp = sanitizeWhatsappDigits(saved.storeWhatsapp);
+    }
+    if (Array.isArray(saved.orders)) {
+      const incoming = saved.orders.filter(
+        (o) => !this.deletedOrderIds.has(o.id) && !this.deletedOrderIds.has(o.orderNumber)
+      );
+      this.orders = this.mergeOrderLists(this.orders, incoming);
+    }
+    if (typeof saved.adminPin === 'string' && /^\d{4,6}$/.test(saved.adminPin.trim())) {
       this.adminPin = saved.adminPin.trim();
+      try {
+        window.localStorage.setItem(PIN_STORAGE_KEY, this.adminPin);
+      } catch {
+        // ignore
+      }
     }
     if (typeof saved.showInThisLookGlobal === 'boolean') {
       this.showInThisLookGlobal = saved.showInThisLookGlobal;
     }
+  }
+
+  private normalizeOrder(raw: Partial<StoreOrder>): StoreOrder | null {
+    if (!raw || typeof raw.orderNumber !== 'string' || !raw.orderNumber.trim()) return null;
+    const status: OrderStatus =
+      raw.status === 'Dispatched' || raw.status === 'Delivered' ? raw.status : 'Pending';
+    const items: StoreOrderItem[] = Array.isArray(raw.items)
+      ? raw.items.map((it) => ({
+          productId: String(it.productId || ''),
+          name: String(it.name || 'Garment'),
+          size: String(it.size || ''),
+          quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+          unitPrice: Math.max(0, Math.round(Number(it.unitPrice) || 0)),
+          totalPrice: Math.max(0, Math.round(Number(it.totalPrice) || 0)),
+          storeCategory:
+            typeof it.storeCategory === 'string' && it.storeCategory.trim()
+              ? it.storeCategory.trim()
+              : 'shirts',
+        }))
+      : [];
+    const createdAt =
+      typeof raw.createdAt === 'string' && !Number.isNaN(Date.parse(raw.createdAt))
+        ? raw.createdAt
+        : new Date().toISOString();
+    return {
+      id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : raw.orderNumber.trim(),
+      orderNumber: raw.orderNumber.trim(),
+      customerName: String(raw.customerName || 'Guest Customer'),
+      phone: String(raw.phone || ''),
+      address: String(raw.address || ''),
+      items,
+      subtotal: Math.max(0, Math.round(Number(raw.subtotal) || 0)),
+      delivery: Math.max(0, Math.round(Number(raw.delivery) || 0)),
+      total: Math.max(0, Math.round(Number(raw.total) || 0)),
+      status,
+      createdAt,
+      updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : createdAt,
+    };
+  }
+
+  private mergeOrderLists(existing: StoreOrder[], incoming: StoreOrder[]): StoreOrder[] {
+    const byNum = new Map<string, StoreOrder>();
+    for (const raw of existing) {
+      const norm = this.normalizeOrder(raw);
+      if (norm) byNum.set(norm.orderNumber, norm);
+    }
+    for (const raw of incoming) {
+      const norm = this.normalizeOrder(raw);
+      if (!norm) continue;
+      const prev = byNum.get(norm.orderNumber);
+      if (!prev) {
+        byNum.set(norm.orderNumber, norm);
+      } else {
+        const prevTs = Date.parse(prev.updatedAt || prev.createdAt) || 0;
+        const nextTs = Date.parse(norm.updatedAt || norm.createdAt) || 0;
+        if (nextTs >= prevTs) {
+          byNum.set(norm.orderNumber, norm);
+        }
+      }
+    }
+    return Array.from(byNum.values())
+      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
+      .slice(0, 120);
   }
 
   private async fetchRemoteSnapshot(url: string, apiKey = ''): Promise<StoreSnapshot | null> {
@@ -777,7 +940,11 @@ class StoreStateManager {
       const remoteTs = remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
       if (!saved || remoteTs >= localTs || candidateUrl !== '/store-config.json') {
         this.applySnapshot(remote);
-        await idbSetSnapshot(remote);
+        const mergedLocal = this.buildPublicSnapshot();
+        await idbSetSnapshot(mergedLocal);
+        this.emit();
+      } else if (Array.isArray(remote.orders) && remote.orders.length > 0) {
+        this.orders = this.mergeOrderLists(this.orders, remote.orders);
         this.emit();
       }
     }
@@ -802,14 +969,15 @@ class StoreStateManager {
     custom: CustomLookPiece
   ): CatalogItem {
     const baseId = 650000000 + look.index * 1000 + pieceNum * 100;
-    const varInfo = makeVariantsForCategory(custom.storeCategory || 'shirts', baseId);
+    const catId = custom.storeCategory || this.categories[0]?.id || 'shirts';
+    const varInfo = makeVariantsForCategory(catId, baseId, this.getCategoryPreset(catId));
     const id = custom.id || `custom-look-${look.key}-p${pieceNum}`;
     return {
       id,
       name: custom.name.trim() || `Look 0${look.index + 1} Piece 0${pieceNum}`,
-      vendor: custom.vendor?.trim() || 'Nike Atelier',
+      vendor: custom.vendor?.trim() || "GR SON'S Atelier",
       category: varInfo.category,
-      storeCategory: custom.storeCategory || 'shirts',
+      storeCategory: catId,
       type: `From Look 0${look.index + 1} · ${look.name}`,
       price: Math.max(0, Math.round(Number(custom.price) || 0)),
       image: custom.image || DEFAULT_CATALOG_ITEMS[0].image,
@@ -821,6 +989,121 @@ class StoreStateManager {
       sizes: varInfo.sizes,
       variants: varInfo.variants,
       url: `#quickview-${id}`,
+    };
+  }
+
+  private formatCategoryFallbackLabel(slug: string): string {
+    return slug
+      .split(/[-_]+/)
+      .filter(Boolean)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
+  private slugifyCategoryId(label: string): string {
+    const base =
+      label
+        .toLowerCase()
+        .replace(/&/g, ' ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'section';
+    const safeBase = base === 'all' ? 'collection' : base;
+    let candidate = safeBase;
+    let suffix = 2;
+    while (candidate === 'all' || this.categories.some((c) => c.id === candidate)) {
+      candidate = `${safeBase}-${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+
+  public getCategories(): StoreCategoryDef[] {
+    return this.categories;
+  }
+
+  public getCategoryLabel(categoryId: string): string {
+    if (!categoryId || categoryId === 'all') return 'All Products';
+    const found = this.categories.find((c) => c.id === categoryId);
+    if (found) return found.label;
+    return this.formatCategoryFallbackLabel(categoryId);
+  }
+
+  public getCategoryPreset(categoryId: string): CategorySizePreset | undefined {
+    return this.categories.find((c) => c.id === categoryId)?.sizePreset;
+  }
+
+  public addCategory(
+    label: string,
+    sizePreset: CategorySizePreset = 'apparel'
+  ): StoreCategoryDef | null {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) return null;
+    const id = this.slugifyCategoryId(cleanLabel);
+    const created: StoreCategoryDef = { id, label: cleanLabel, sizePreset };
+    this.categories = [...this.categories, created];
+    this.emit();
+    return created;
+  }
+
+  public updateCategory(
+    id: string,
+    patch: { label?: string; sizePreset?: CategorySizePreset }
+  ): void {
+    const target = this.categories.find((c) => c.id === id);
+    if (!target) return;
+    if (typeof patch.label === 'string') {
+      const clean = patch.label.trim();
+      if (clean) target.label = clean;
+    }
+    if (patch.sizePreset) {
+      target.sizePreset = patch.sizePreset;
+    }
+    this.emit();
+  }
+
+  public deleteCategory(id: string): {
+    ok: boolean;
+    reassignedCount: number;
+    message: string;
+  } {
+    if (this.categories.length <= 1) {
+      return {
+        ok: false,
+        reassignedCount: 0,
+        message: 'At least one storefront section must remain active.',
+      };
+    }
+    const target = this.categories.find((c) => c.id === id);
+    if (!target) {
+      return { ok: false, reassignedCount: 0, message: 'Section not found.' };
+    }
+    const remaining = this.categories.filter((c) => c.id !== id);
+    const fallback = remaining[0];
+    let reassignedCount = 0;
+
+    for (const prod of this.products) {
+      if (prod.storeCategory === id) {
+        prod.storeCategory = fallback.id;
+        reassignedCount += 1;
+      }
+    }
+    for (const look of this.looks) {
+      for (const piece of look.pieces) {
+        if (piece.customItem && piece.customItem.storeCategory === id) {
+          piece.customItem.storeCategory = fallback.id;
+        }
+      }
+    }
+
+    this.categories = remaining;
+    this.emit();
+    return {
+      ok: true,
+      reassignedCount,
+      message:
+        reassignedCount > 0
+          ? `Deleted "${target.label}" and moved ${reassignedCount} ${reassignedCount === 1 ? 'item' : 'items'} to "${fallback.label}".`
+          : `Deleted "${target.label}" section.`,
     };
   }
 
@@ -963,12 +1246,144 @@ class StoreStateManager {
     return input.trim() === this.adminPin;
   }
 
+  public async updateAdminPin(newPin: string): Promise<{ ok: boolean; message: string }> {
+    const clean = newPin.trim();
+    if (!/^\d{4,6}$/.test(clean)) {
+      return { ok: false, message: 'PIN must be 4 to 6 numeric digits.' };
+    }
+    this.adminPin = clean;
+    try {
+      window.localStorage.setItem(PIN_STORAGE_KEY, clean);
+    } catch {
+      // ignore
+    }
+    await this.saveAllChanges(true);
+    const cloud = this.getCloudSync();
+    return {
+      ok: true,
+      message: cloud.endpointUrl.trim()
+        ? 'Owner PIN updated & synced globally to Cloud!'
+        : 'Owner PIN updated locally.',
+    };
+  }
+
+  public getStoreWhatsapp(): string {
+    return this.storeWhatsapp;
+  }
+
+  public setStoreWhatsapp(raw: string): void {
+    this.storeWhatsapp = sanitizeWhatsappDigits(raw, DEFAULT_STORE_WHATSAPP);
+    this.emit();
+  }
+
+  public getOrders(): StoreOrder[] {
+    return this.orders;
+  }
+
+  public async placeOrder(input: {
+    orderNumber: string;
+    customerName: string;
+    phone: string;
+    address: string;
+    items: StoreOrderItem[];
+    subtotal: number;
+    delivery: number;
+    total: number;
+  }): Promise<StoreOrder> {
+    const now = new Date().toISOString();
+    const order: StoreOrder = {
+      id: `ord-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      orderNumber: input.orderNumber.trim(),
+      customerName: input.customerName.trim(),
+      phone: input.phone.trim(),
+      address: input.address.trim(),
+      items: cloneDeep(input.items),
+      subtotal: Math.max(0, Math.round(input.subtotal)),
+      delivery: Math.max(0, Math.round(input.delivery)),
+      total: Math.max(0, Math.round(input.total)),
+      status: 'Pending',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Pull latest remote orders first if cloud configured so we don't overwrite owner's other live orders
+    const endpoint = this.cloudSync.endpointUrl.trim();
+    if (endpoint) {
+      const remote = await this.fetchRemoteSnapshot(endpoint, this.cloudSync.apiKey);
+      if (remote && Array.isArray(remote.orders)) {
+        this.orders = this.mergeOrderLists(this.orders, remote.orders);
+      }
+    }
+
+    this.orders = [order, ...this.orders].slice(0, 120);
+    await this.saveAllChanges(true);
+    return order;
+  }
+
+  public async updateOrderStatus(orderId: string, status: OrderStatus): Promise<void> {
+    const target = this.orders.find((o) => o.id === orderId || o.orderNumber === orderId);
+    if (!target) return;
+    target.status = status;
+    target.updatedAt = new Date().toISOString();
+    this.emit();
+    await this.saveAllChanges(true);
+  }
+
+  public async deleteOrder(orderId: string): Promise<void> {
+    const target = this.orders.find((o) => o.id === orderId || o.orderNumber === orderId);
+    if (!target) return;
+    this.deletedOrderIds.add(target.id);
+    this.deletedOrderIds.add(target.orderNumber);
+    this.orders = this.orders.filter((o) => o.id !== target.id && o.orderNumber !== target.orderNumber);
+    this.emit();
+    await this.saveAllChanges(true);
+  }
+
+  public findOrdersByQuery(rawQuery: string): StoreOrder[] {
+    const q = rawQuery.trim();
+    if (!q) return [];
+    const normalizedId = q.replace(/^#/, '').toLowerCase();
+    const digits = q.replace(/\D/g, '');
+    return this.orders.filter((o) => {
+      if (o.orderNumber.toLowerCase() === normalizedId || o.orderNumber.toLowerCase().includes(normalizedId)) {
+        return true;
+      }
+      if (digits.length >= 4) {
+        const ordDigits = o.phone.replace(/\D/g, '');
+        const ordWa = sanitizeWhatsappDigits(o.phone, '');
+        if (ordDigits.includes(digits) || ordWa.includes(digits)) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  public getSizeGuide(): SizeGuideConfig {
+    return this.sizeGuide;
+  }
+
+  public updateSizeGuide(next: SizeGuideConfig): void {
+    this.sizeGuide = cloneDeep(next);
+    this.emit();
+  }
+
+  public resetSizeGuideDefault(): void {
+    this.sizeGuide = cloneDeep(DEFAULT_SIZE_GUIDE);
+    this.emit();
+  }
+
   public buildPublicSnapshot(): StoreSnapshot {
     return {
+      categories: cloneDeep(this.categories),
       products: cloneDeep(this.products),
       looks: cloneDeep(this.looks),
       heroBanner: cloneDeep(this.heroBanner),
       showroom: cloneDeep(this.showroom),
+      sizeGuide: cloneDeep(this.sizeGuide),
+      orders: cloneDeep(this.orders),
+      storeWhatsapp: this.storeWhatsapp,
+      adminPin: this.adminPin,
       showInThisLookGlobal: this.showInThisLookGlobal,
       updatedAt: new Date().toISOString(),
     };
@@ -1079,10 +1494,14 @@ class StoreStateManager {
   }
 
   public async resetToDefault(): Promise<void> {
+    this.categories = cloneDeep(DEFAULT_STORE_CATEGORIES);
     this.products = cloneDeep(DEFAULT_CATALOG_ITEMS);
     this.looks = cloneDeep(DEFAULT_LOOKS);
     this.heroBanner = cloneDeep(DEFAULT_HERO_BANNER);
     this.showroom = cloneDeep(DEFAULT_SHOWROOM);
+    this.sizeGuide = cloneDeep(DEFAULT_SIZE_GUIDE);
+    this.orders = [];
+    this.storeWhatsapp = DEFAULT_STORE_WHATSAPP;
     this.adminPin = DEFAULT_PIN;
     this.showInThisLookGlobal = true;
     await idbDeleteSnapshot();
@@ -1095,35 +1514,100 @@ class StoreStateManager {
     this.emit();
   }
 
+  public getProductGallery(item: CatalogItem): string[] {
+    const list: string[] = [];
+    if (Array.isArray(item.images)) {
+      for (const img of item.images) {
+        if (typeof img === 'string' && img.trim() && list.length < 4) {
+          list.push(img.trim());
+        }
+      }
+    }
+    if (list.length === 0 && item.image) {
+      list.push(item.image);
+    } else if (item.image && list[0] !== item.image) {
+      list[0] = item.image;
+    }
+    return list.slice(0, 4);
+  }
+
+  public getProductSku(item: CatalogItem): string {
+    if (item.sku && item.sku.trim()) return item.sku.trim();
+    const baseNum = item.variants?.[0]?.id ? String(item.variants[0].id).slice(-4) : '1001';
+    let prefix = 'GR';
+    if (item.storeCategory === 'waistcoats-coats') {
+      prefix = 'WC';
+    } else if (item.storeCategory === 'trousers') {
+      prefix = 'TR';
+    } else if (item.storeCategory === 'shoes') {
+      prefix = 'FT';
+    } else if (item.storeCategory === 'shirts') {
+      prefix = 'SH';
+    } else {
+      const words = this.getCategoryLabel(item.storeCategory)
+        .replace(/[^a-zA-Z0-9\s]/g, '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const initials =
+        words.length >= 2
+          ? `${words[0][0]}${words[1][0]}`
+          : (words[0] || item.storeCategory || 'GR').slice(0, 2);
+      prefix = initials.toUpperCase() || 'GR';
+    }
+    return `GR-${prefix}-${baseNum}`;
+  }
+
+  public getProductFabricNotes(item: CatalogItem): string {
+    if (item.fabricNotes && item.fabricNotes.trim()) return item.fabricNotes.trim();
+    if (item.storeCategory === 'waistcoats-coats') {
+      return 'Full-canvas Italian worsted wool & cashmere-blend structure with horn hardware, satin lining, and pick-stitched lapels tailored at our Gujranwala Atelier.';
+    }
+    if (item.storeCategory === 'trousers') {
+      return 'Structured drape-cut weave crafted for all-day poise, reinforced French fly waistband, and crisp crease retention.';
+    }
+    if (item.storeCategory === 'shoes') {
+      return 'Hand-burnished full-grain leather uppers paired with breathable calfskin lining and cushioned Goodyear-inspired sole architecture.';
+    }
+    if (item.storeCategory === 'shirts') {
+      return 'Long-staple combed Egyptian cotton weave finished with mother-of-pearl sheen buttons, structured collar interfacing, and breathable single-needle tailoring.';
+    }
+    const catLabel = this.getCategoryLabel(item.storeCategory);
+    return `Signature ${catLabel} piece crafted with heirloom finishing, refined cloth weight, and hand-inspected detailing from GR SON'S Gujranwala Atelier.`;
+  }
+
   public addProduct(input: {
     name: string;
     vendor: string;
     price: number;
     storeCategory: Exclude<StoreCategory, 'all'>;
     image: string;
+    images?: string[];
+    sku?: string;
+    fabricNotes?: string;
     type?: string;
   }): CatalogItem {
     const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     this.nextVariantBase += 100;
-    const varInfo = makeVariantsForCategory(input.storeCategory, this.nextVariantBase);
-    const catName =
-      input.storeCategory === 'shirts'
-        ? 'Shirts'
-        : input.storeCategory === 'waistcoats-coats'
-          ? 'Waistcoats & Coats'
-          : input.storeCategory === 'trousers'
-            ? 'Trousers'
-            : 'Shoes';
+    const preset = this.getCategoryPreset(input.storeCategory);
+    const varInfo = makeVariantsForCategory(input.storeCategory, this.nextVariantBase, preset);
+    const catName = this.getCategoryLabel(input.storeCategory);
+
+    const mainImage = input.image || input.images?.[0] || DEFAULT_CATALOG_ITEMS[0].image;
+    const gallery = [mainImage, ...(input.images || []).slice(1)].filter(Boolean).slice(0, 4);
 
     const newItem: CatalogItem = {
       id,
       name: input.name.trim() || 'Untitled Garment',
-      vendor: input.vendor.trim() || 'Nike Atelier',
+      vendor: input.vendor.trim() || "GR SON'S Atelier",
       category: varInfo.category,
       storeCategory: input.storeCategory,
       type: input.type?.trim() || `Atelier Collection · ${catName}`,
       price: Math.max(0, Math.round(Number(input.price) || 0)),
-      image: input.image || DEFAULT_CATALOG_ITEMS[0].image,
+      image: mainImage,
+      images: gallery,
+      sku: input.sku?.trim() || undefined,
+      fabricNotes: input.fabricNotes?.trim() || undefined,
       width: 400,
       height: 533,
       mobileWidth: 160,
@@ -1147,6 +1631,9 @@ class StoreStateManager {
       price: number;
       storeCategory: Exclude<StoreCategory, 'all'>;
       image: string;
+      images: string[];
+      sku: string;
+      fabricNotes: string;
       type: string;
     }>
   ): void {
@@ -1164,13 +1651,30 @@ class StoreStateManager {
     }
     if (typeof patch.image === 'string' && patch.image) {
       item.image = patch.image;
+      const imgs = this.getProductGallery(item);
+      imgs[0] = patch.image;
+      item.images = imgs.slice(0, 4);
+    }
+    if (Array.isArray(patch.images)) {
+      const cleaned = patch.images.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 4);
+      if (cleaned.length > 0) {
+        item.image = cleaned[0];
+        item.images = cleaned;
+      }
+    }
+    if (typeof patch.sku === 'string') {
+      item.sku = patch.sku.trim();
+    }
+    if (typeof patch.fabricNotes === 'string') {
+      item.fabricNotes = patch.fabricNotes.trim();
     }
     if (typeof patch.type === 'string' && patch.type.trim()) {
       item.type = patch.type.trim();
     }
     if (patch.storeCategory && patch.storeCategory !== item.storeCategory) {
       this.nextVariantBase += 100;
-      const varInfo = makeVariantsForCategory(patch.storeCategory, this.nextVariantBase);
+      const preset = this.getCategoryPreset(patch.storeCategory);
+      const varInfo = makeVariantsForCategory(patch.storeCategory, this.nextVariantBase, preset);
       item.storeCategory = patch.storeCategory;
       item.category = varInfo.category;
       item.optionName = varInfo.optionName;
@@ -1188,6 +1692,30 @@ class StoreStateManager {
     }
 
     this.emit();
+  }
+
+  public updateProductGallerySlot(id: string, slotIndex: number, imageUrl: string): void {
+    const item = this.products.find((p) => p.id === id);
+    if (!item || slotIndex < 0 || slotIndex > 3) return;
+    const clean = imageUrl.trim();
+    const slots: string[] = [
+      item.images?.[0] || item.image || '',
+      item.images?.[1] || '',
+      item.images?.[2] || '',
+      item.images?.[3] || '',
+    ];
+    if (!clean) {
+      if (slotIndex === 0) return; // cannot clear primary slot without replacement
+      slots[slotIndex] = '';
+    } else {
+      slots[slotIndex] = clean;
+    }
+    const compacted = slots.filter(Boolean).slice(0, 4);
+    if (compacted.length > 0) {
+      item.image = compacted[0];
+      item.images = compacted;
+      this.emit();
+    }
   }
 
   public deleteProduct(id: string): void {

@@ -1,16 +1,23 @@
-export type StoreCategory = 'all' | 'shirts' | 'waistcoats-coats' | 'trousers' | 'shoes';
+export type StoreCategory = 'all' | string;
+
+export type CategorySizePreset = 'apparel' | 'trousers' | 'shoes' | 'one-size';
 
 export interface StoreCategoryDef {
   id: StoreCategory;
   label: string;
+  sizePreset?: CategorySizePreset;
 }
+
+export const DEFAULT_STORE_CATEGORIES: StoreCategoryDef[] = [
+  { id: 'waistcoats-coats', label: 'Waistcoats & Coats', sizePreset: 'apparel' },
+  { id: 'trousers', label: 'Trousers', sizePreset: 'trousers' },
+  { id: 'shirts', label: 'Shirts', sizePreset: 'apparel' },
+  { id: 'shoes', label: 'Shoes', sizePreset: 'shoes' },
+];
 
 export const STORE_CATEGORIES: StoreCategoryDef[] = [
   { id: 'all', label: 'All' },
-  { id: 'shirts', label: 'Shirts' },
-  { id: 'waistcoats-coats', label: 'Waistcoats & Coats' },
-  { id: 'trousers', label: 'Trousers' },
-  { id: 'shoes', label: 'Shoes' },
+  ...DEFAULT_STORE_CATEGORIES,
 ];
 
 export interface VariantDef {
@@ -28,6 +35,9 @@ export interface CatalogItem {
   type: string;
   price: number;
   image: string;
+  images?: string[];
+  sku?: string;
+  fabricNotes?: string;
   width: number;
   height: number;
   mobileWidth: number;
@@ -150,6 +160,92 @@ export interface CloudSyncConfig {
   lastSyncedAt: string;
 }
 
+export type OrderStatus = 'Pending' | 'Dispatched' | 'Delivered';
+
+export interface StoreOrderItem {
+  productId: string;
+  name: string;
+  size: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  storeCategory: Exclude<StoreCategory, 'all'>;
+}
+
+export interface StoreOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  phone: string;
+  address: string;
+  items: StoreOrderItem[];
+  subtotal: number;
+  delivery: number;
+  total: number;
+  status: OrderStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export const DEFAULT_STORE_WHATSAPP = '923001234567';
+export const DEFAULT_ADMIN_PIN = '1234';
+
+export interface SizeGuideApparelRow {
+  size: string;
+  chest: string;
+  shoulder: string;
+  sleeve: string;
+  waist: string;
+  length: string;
+}
+
+export interface SizeGuideTrouserRow {
+  size: string;
+  waist: string;
+  hip: string;
+  inseam: string;
+  legOpening: string;
+}
+
+export interface SizeGuideShoeRow {
+  eu: string;
+  us: string;
+  uk: string;
+  cm: string;
+}
+
+export interface SizeGuideConfig {
+  apparel: SizeGuideApparelRow[];
+  trousers: SizeGuideTrouserRow[];
+  shoes: SizeGuideShoeRow[];
+  note: string;
+}
+
+export const DEFAULT_SIZE_GUIDE: SizeGuideConfig = {
+  apparel: [
+    { size: 'S', chest: '36–38 in · 91–97 cm', shoulder: '17.3 in · 44 cm', sleeve: '24.4 in · 62 cm', waist: '29–31 in', length: '28.3 in · 72 cm' },
+    { size: 'M', chest: '39–41 in · 99–104 cm', shoulder: '18.1 in · 46 cm', sleeve: '25.2 in · 64 cm', waist: '31–33 in', length: '29.1 in · 74 cm' },
+    { size: 'L', chest: '42–44 in · 107–112 cm', shoulder: '18.9 in · 48 cm', sleeve: '26.0 in · 66 cm', waist: '33–35 in', length: '29.9 in · 76 cm' },
+    { size: 'XL', chest: '45–47 in · 114–119 cm', shoulder: '19.7 in · 50 cm', sleeve: '26.8 in · 68 cm', waist: '36–38 in', length: '30.7 in · 78 cm' },
+  ],
+  trousers: [
+    { size: '28', waist: '29.0 in · 74 cm', hip: '38.5 in · 98 cm', inseam: '31.0 in · 79 cm', legOpening: '8.7 in · 22 cm' },
+    { size: '30', waist: '31.0 in · 79 cm', hip: '40.5 in · 103 cm', inseam: '31.5 in · 80 cm', legOpening: '9.0 in · 23 cm' },
+    { size: '32', waist: '33.0 in · 84 cm', hip: '42.5 in · 108 cm', inseam: '32.0 in · 81 cm', legOpening: '9.4 in · 24 cm' },
+    { size: '34', waist: '35.0 in · 89 cm', hip: '44.5 in · 113 cm', inseam: '32.5 in · 83 cm', legOpening: '9.8 in · 25 cm' },
+  ],
+  shoes: [
+    { eu: '40', us: '7', uk: '6', cm: '25.0 cm' },
+    { eu: '41', us: '8', uk: '7', cm: '26.0 cm' },
+    { eu: '42', us: '8.5', uk: '7.5', cm: '26.5 cm' },
+    { eu: '43', us: '9.5', uk: '8.5', cm: '27.5 cm' },
+    { eu: '44', us: '10', uk: '9', cm: '28.0 cm' },
+    { eu: '45', us: '11', uk: '10', cm: '29.0 cm' },
+    { eu: '46', us: '12', uk: '11', cm: '30.0 cm' },
+  ],
+  note: 'Tailored garments cut to modern proportions. Between sizes, choose the larger size for layered waistcoat and blazer comfort.',
+};
+
 export const RUNWAY_SOURCE_URL = 'https://nike-makknzjs.myshopify.com/pages/runway';
 
 export const DEFAULT_HERO_SLIDES: HeroSlideConfig[] = [
@@ -221,14 +317,22 @@ export const DEFAULT_CLOUD_SYNC: CloudSyncConfig = {
 
 export function makeVariantsForCategory(
   storeCategory: Exclude<StoreCategory, 'all'>,
-  baseId: number
+  baseId: number,
+  sizePreset?: CategorySizePreset
 ): {
   category: 'tops' | 'bottoms' | 'footwear';
   optionName: string;
   sizes: string[];
   variants: VariantDef[];
 } {
-  if (storeCategory === 'trousers') {
+  const slug = String(storeCategory || '').toLowerCase();
+  const isTrousers =
+    sizePreset === 'trousers' ||
+    (!sizePreset &&
+      (slug === 'trousers' ||
+        /\b(pant|pants|trouser|trousers|chino|chinos|denim|jean|jeans|shalwar)\b/.test(slug)));
+
+  if (isTrousers) {
     const sizes = ['28', '30', '32', '34'];
     return {
       category: 'bottoms',
@@ -237,7 +341,16 @@ export function makeVariantsForCategory(
       variants: sizes.map((size, idx) => ({ id: baseId + idx, a: true, o: [size] })),
     };
   }
-  if (storeCategory === 'shoes') {
+
+  const isShoes =
+    sizePreset === 'shoes' ||
+    (!sizePreset &&
+      (slug === 'shoes' ||
+        /\b(shoe|shoes|footwear|loafer|loafers|boot|boots|khussa|sneaker|sneakers|sandal|sandals)\b/.test(
+          slug
+        )));
+
+  if (isShoes) {
     const sizes = ['40', '41', '42', '43', '44', '45', '46'];
     return {
       category: 'footwear',
@@ -246,6 +359,24 @@ export function makeVariantsForCategory(
       variants: sizes.map((size, idx) => ({ id: baseId + idx, a: true, o: [size] })),
     };
   }
+
+  const isOneSize =
+    sizePreset === 'one-size' ||
+    (!sizePreset &&
+      /\b(accessor|accessories|cufflink|cufflinks|watch|watches|belt|belts|tie|ties|pocket-square|scarf|shawl|perfume|fragrance|fragrances|wallet|wallets)\b/.test(
+        slug
+      ));
+
+  if (isOneSize) {
+    const sizes = ['Standard'];
+    return {
+      category: 'tops',
+      optionName: 'Size',
+      sizes,
+      variants: sizes.map((size, idx) => ({ id: baseId + idx, a: true, o: [size] })),
+    };
+  }
+
   const sizes = ['S', 'M', 'L', 'XL'];
   return {
     category: 'tops',
