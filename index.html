@@ -48,6 +48,14 @@
         </a>
         <div class="site-header-actions">
           <button
+            type="button"
+            class="header-track-link"
+            data-open-track-order
+            aria-label="Track your order"
+          >
+            Track Order
+          </button>
+          <button
             id="header-search-toggle"
             type="button"
             class="header-icon-btn"
@@ -198,19 +206,43 @@
                 <button type="button" class="store-cat-btn" data-store-cat="shirts" role="tab" aria-selected="false">Shirts</button>
                 <button type="button" class="store-cat-btn" data-store-cat="shoes" role="tab" aria-selected="false">Shoes</button>
               </div>
-              <div class="catalog-search-wrap">
-                <svg class="store-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                  <circle cx="11" cy="11" r="7.5" />
-                  <path d="M20 20l-4.2-4.2" />
-                </svg>
-                <input
-                  type="search"
-                  class="catalog-search-input"
-                  data-catalog-search
-                  placeholder="Filter by garment, fabric, or look..."
-                  aria-label="Filter collection grid"
-                  autocomplete="off"
-                />
+              <div class="catalog-tools-row">
+                <div class="catalog-search-wrap">
+                  <svg class="store-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7.5" />
+                    <path d="M20 20l-4.2-4.2" />
+                  </svg>
+                  <input
+                    type="search"
+                    class="catalog-search-input"
+                    data-catalog-search
+                    placeholder="Search garments by name, fabric, color, or look..."
+                    aria-label="Filter collection grid"
+                    autocomplete="off"
+                  />
+                  <button
+                    type="button"
+                    class="catalog-search-clear"
+                    data-catalog-clear
+                    aria-label="Clear garment filter"
+                    hidden
+                  >
+                    ×
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  class="catalog-wishlist-filter-btn"
+                  data-wishlist-filter
+                  aria-pressed="false"
+                  title="Show saved wishlist pieces"
+                >
+                  <svg class="wishlist-heart-svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                    <path d="M12 20.5s-7.5-4.8-9.5-9.2C.9 7.8 3 4.2 6.8 4.2c2.1 0 3.9 1.1 5.2 2.9 1.3-1.8 3.1-2.9 5.2-2.9 3.8 0 5.9 3.6 4.3 7.1-2 4.4-9.5 9.2-9.5 9.2z" />
+                  </svg>
+                  <span>Saved</span>
+                  <span class="catalog-wishlist-count" data-wishlist-count>0</span>
+                </button>
               </div>
             </div>
 
@@ -390,9 +422,23 @@
 
           <div id="cod-confirmation" class="cod-confirmation" hidden>
             <div class="cod-confirm-badge">Order Confirmed</div>
-            <h3 id="cod-order-number">Order #NK-4821 Confirmed — Preparing Shipment</h3>
+            <h3 id="cod-order-number">Order #GR-4821 Confirmed — Preparing Shipment</h3>
             <p id="cod-order-meta" class="cod-order-meta"></p>
             <div id="cod-order-receipt" class="cod-order-receipt"></div>
+            <a
+              id="cod-whatsapp-receipt"
+              class="cod-wa-receipt-btn"
+              href="https://wa.me/923001234567"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+            >
+              <svg class="wa-official-svg" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+                <path fill="#25D366" d="M16 3C8.82 3 3 8.82 3 16c0 2.47.7 4.78 1.9 6.75L3.6 28.4l5.8-1.52A12.93 12.93 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" />
+                <path fill="#ffffff" d="M23.02 19.65c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.93-2.25-.25-.6-.5-.52-.68-.53h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35z" />
+              </svg>
+              <span>Send Order Receipt on Store WhatsApp</span>
+            </a>
             <button type="button" id="cod-continue" class="cod-submit">Continue Shopping</button>
           </div>
 
@@ -402,56 +448,118 @@
         </div>
       </dialog>
 
-      <dialog id="quickview-dialog" class="qv-dialog" aria-labelledby="qv-title">
-        <div class="qv-layout">
-          <div class="qv-media">
-            <span class="qv-tag" data-qv-tag hidden>
-              <span class="qv-tag-text" data-qv-tag-text></span>
-            </span>
-            <img data-qv-img src="" alt="" loading="lazy" decoding="async" />
-          </div>
-          <div class="qv-body">
-            <div class="qv-head">
-              <span class="qv-kicker" data-qv-kicker>Quick View</span>
-              <button
-                type="button"
-                class="qv-close"
-                data-qv-close
-                aria-label="Close Quick View"
-              >
-                ×
-              </button>
-            </div>
-            <div class="qv-title-row">
-              <h2 id="qv-title" class="qv-title" data-qv-title></h2>
-              <p class="qv-price" data-qv-price></p>
-            </div>
-            <p class="qv-look" data-qv-look></p>
-            <div class="qv-rule"></div>
-            <fieldset class="qv-opt">
-              <div class="qv-opt-head">
-                <legend class="qv-legend" data-qv-legend>Size</legend>
-                <button type="button" class="qv-sizeguide-btn" data-qv-sizeguide>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                    <path d="M2 8h20v8H2zM6 8v4M10 8v3M14 8v4M18 8v3" />
-                  </svg>
-                  <span>Size Guide (S, M, L, XL)</span>
-                </button>
-              </div>
-              <div class="rw__pills qv-pills" data-qv-pills></div>
-            </fieldset>
-            <p class="qv-msg" data-qv-msg role="status" aria-live="polite"></p>
-            <div class="qv-actions">
-              <button type="button" class="qv-cta" data-qv-add>
-                <span data-qv-add-label>Add to bag</span>
-              </button>
-              <button type="button" class="qv-bag-link" data-qv-open-bag>
-                Open shopping bag (<span data-cart-count>0</span>)
-              </button>
-            </div>
+      <section
+        id="pdp-view"
+        class="pdp-view"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pdp-title"
+        hidden
+      >
+        <div class="pdp-sticky-bar">
+          <div class="pdp-sticky-inner">
+            <button type="button" class="pdp-back-btn" data-pdp-close>
+              <span aria-hidden="true">←</span>
+              <span>Back to Collection</span>
+            </button>
+            <span class="pdp-breadcrumb" data-pdp-breadcrumb>GR SON'S Atelier</span>
+            <button type="button" class="pdp-bag-top-btn" data-pdp-open-bag>
+              <span>Shopping Bag (<span data-cart-count>0</span>)</span>
+            </button>
           </div>
         </div>
-      </dialog>
+
+        <div class="pdp-container">
+          <div class="pdp-layout">
+            <div class="pdp-gallery">
+              <div class="pdp-main-stage" data-pdp-stage>
+                <span class="pdp-tag" data-pdp-tag hidden>
+                  <span data-pdp-tag-text></span>
+                </span>
+                <img data-pdp-main-img src="" alt="" decoding="async" referrerpolicy="no-referrer" />
+                <span class="pdp-zoom-hint">Hover to inspect weave</span>
+              </div>
+              <div class="pdp-thumbs" data-pdp-thumbs role="group" aria-label="Product photo angles"></div>
+            </div>
+
+            <div class="pdp-details">
+              <div class="pdp-meta-line">
+                <span class="pdp-kicker" data-pdp-kicker>GR SON'S Atelier</span>
+                <span aria-hidden="true">·</span>
+                <span class="pdp-sku" data-pdp-sku>SKU: GR-001</span>
+              </div>
+
+              <h1 id="pdp-title" class="pdp-title" data-pdp-title></h1>
+              <p class="pdp-price" data-pdp-price></p>
+              <p class="pdp-look" data-pdp-look></p>
+
+              <div class="pdp-fabric-box">
+                <span class="pdp-fabric-label">Fabric &amp; Tailoring Notes</span>
+                <p class="pdp-fabric-copy" data-pdp-fabric></p>
+              </div>
+
+              <fieldset class="pdp-opt">
+                <div class="pdp-opt-head">
+                  <legend class="pdp-legend" data-pdp-legend>Size</legend>
+                  <button type="button" class="qv-sizeguide-btn" data-pdp-sizeguide>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                      <path d="M2 8h20v8H2zM6 8v4M10 8v3M14 8v4M18 8v3" />
+                    </svg>
+                    <span data-pdp-sizeguide-label>Size Guide</span>
+                  </button>
+                </div>
+                <div class="rw__pills pdp-pills" data-pdp-pills></div>
+              </fieldset>
+
+              <p class="qv-msg" data-pdp-msg role="status" aria-live="polite"></p>
+
+              <div class="pdp-actions">
+                <button type="button" class="pdp-cta-primary" data-pdp-add>
+                  <span data-pdp-add-label>Add to Shopping Bag</span>
+                </button>
+                <a
+                  class="pdp-cta-whatsapp"
+                  data-pdp-whatsapp
+                  href="https://wa.me/923001234567"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg class="wa-official-svg" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+                    <path fill="#25D366" d="M16 3C8.82 3 3 8.82 3 16c0 2.47.7 4.78 1.9 6.75L3.6 28.4l5.8-1.52A12.93 12.93 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" />
+                    <path fill="#ffffff" d="M23.02 19.65c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.93-2.25-.25-.6-.5-.52-.68-.53h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35z" />
+                  </svg>
+                  <span>Order Directly on WhatsApp</span>
+                </a>
+              </div>
+
+              <div class="pdp-trust-strip">
+                <div class="pdp-trust-item">
+                  <strong>7-Day Easy Size Exchange</strong>
+                  <span>Seamless doorstep size swap across Pakistan</span>
+                </div>
+                <div class="pdp-trust-item">
+                  <strong>Hand-Finished in Gujranwala</strong>
+                  <span>Inspected by our flagship master tailors</span>
+                </div>
+                <div class="pdp-trust-item">
+                  <strong>Nationwide Express COD</strong>
+                  <span>Complimentary shipping over PKR 25,000</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <section class="pdp-related" aria-labelledby="pdp-related-heading">
+            <div class="pdp-related-head">
+              <div>
+                <span class="catalog-eyebrow">Curated Styling Pairings</span>
+                <h2 id="pdp-related-heading">Complete the Look / Related Pieces</h2>
+              </div>
+            </div>
+            <div class="pdp-related-grid" data-pdp-related></div>
+          </section>
+        </div>
+      </section>
 
       <dialog id="sizeguide-dialog" class="sg-dialog" aria-labelledby="sg-title">
         <div class="sg-inner">
@@ -481,7 +589,7 @@
                   <th>Length</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-sg-body="apparel">
                 <tr>
                   <td><strong>S</strong></td>
                   <td>36–38 in · 91–97 cm</td>
@@ -529,7 +637,7 @@
                   <th>Leg Opening</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-sg-body="trousers">
                 <tr>
                   <td><strong>28</strong></td>
                   <td>29.0 in · 74 cm</td>
@@ -572,7 +680,7 @@
                   <th>Foot Length</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody data-sg-body="shoes">
                 <tr><td><strong>40</strong></td><td>7</td><td>6</td><td>25.0 cm</td></tr>
                 <tr><td><strong>41</strong></td><td>8</td><td>7</td><td>26.0 cm</td></tr>
                 <tr><td><strong>42</strong></td><td>8.5</td><td>7.5</td><td>26.5 cm</td></tr>
@@ -584,7 +692,7 @@
             </table>
           </div>
 
-          <p class="sg-note">Tailored garments cut to modern proportions. Between sizes, choose the larger size for layered waistcoat and blazer comfort.</p>
+          <p class="sg-note" data-sg-note>Tailored garments cut to modern proportions. Between sizes, choose the larger size for layered waistcoat and blazer comfort.</p>
         </div>
       </dialog>
 
@@ -631,7 +739,54 @@
             <span class="cod-confirm-badge">Appointment Reserved</span>
             <h3 id="fitting-confirm-title">Private Fitting Scheduled</h3>
             <p id="fitting-confirm-copy" class="cod-order-meta"></p>
+            <a
+              id="fitting-whatsapp-btn"
+              class="cod-wa-receipt-btn"
+              href="https://wa.me/923001234567"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+            >
+              <svg class="wa-official-svg" width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+                <path fill="#25D366" d="M16 3C8.82 3 3 8.82 3 16c0 2.47.7 4.78 1.9 6.75L3.6 28.4l5.8-1.52A12.93 12.93 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" />
+                <path fill="#ffffff" d="M23.02 19.65c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.93-2.25-.25-.6-.5-.52-.68-.53h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35z" />
+              </svg>
+              <span>Confirm Appointment on Store WhatsApp</span>
+            </a>
             <button type="button" id="fitting-done-btn" class="fitting-submit-btn">Done</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="track-order-dialog" class="track-dialog" aria-labelledby="track-dialog-title">
+        <div class="track-inner">
+          <div class="fitting-head">
+            <div>
+              <span class="adm-eyebrow">GR SON'S Live Order Status</span>
+              <h2 id="track-dialog-title">Track Your Order</h2>
+            </div>
+            <button type="button" id="track-close-btn" class="admin-close-btn" aria-label="Close order tracker">×</button>
+          </div>
+          <p class="fitting-intro">
+            Enter your Order ID (e.g. <strong>#GR-4821</strong>) or contact phone number to check live tailoring and dispatch updates.
+          </p>
+          <form id="track-order-form" class="track-form" novalidate>
+            <input
+              id="track-order-input"
+              type="text"
+              placeholder="Order ID (#GR-4821) or Phone (0300...)"
+              aria-label="Order ID or Phone Number"
+              required
+            />
+            <button type="submit" id="track-order-submit" class="fitting-submit-btn">Check Status</button>
+          </form>
+          <div id="track-order-results" class="track-results" aria-live="polite"></div>
+          <div class="track-trust-bar">
+            <span>7-Day Easy Size Exchange</span>
+            <span aria-hidden="true">·</span>
+            <span>Hand-Finished in Gujranwala</span>
+            <span aria-hidden="true">·</span>
+            <span>Nationwide Express COD</span>
           </div>
         </div>
       </dialog>
@@ -648,10 +803,20 @@
             />
             <span class="site-footer-eyebrow">Flagship Atelier · Runway Menswear</span>
             <p class="site-footer-copy">Bespoke tailoring, 3D runway curation, and Cash on Delivery nationwide in PKR.</p>
+            <div class="footer-trust-row">
+              <span>7-Day Easy Size Exchange</span>
+              <span aria-hidden="true">·</span>
+              <span>Hand-Finished in Gujranwala</span>
+              <span aria-hidden="true">·</span>
+              <span>Nationwide COD</span>
+            </div>
           </div>
           <div class="site-footer-meta">
             <span class="site-footer-eyebrow">Gujranwala Flagship Showroom</span>
             <p class="site-footer-copy">Block Y, Main Super X Market, Opposite Al Noor Bakery, Peoples Colony · Mon–Sun 11 AM–10 PM</p>
+            <div class="site-footer-links">
+              <button type="button" class="footer-track-link" data-open-track-order>Track Order Status →</button>
+            </div>
           </div>
         </div>
       </footer>
@@ -685,43 +850,77 @@
         </form>
       </dialog>
 
-      <dialog id="admin-dashboard-dialog" class="admin-dashboard-dialog" aria-labelledby="admin-dashboard-title">
+      <section
+        id="admin-dashboard-dialog"
+        class="admin-dashboard-page"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-dashboard-title"
+        hidden
+      >
         <div class="adm-shell">
-          <header class="adm-topbar">
-            <div class="adm-topbar-left">
-              <span class="adm-eyebrow">Store Owner / Seller Admin Dashboard</span>
-              <h2 id="admin-dashboard-title">Atelier Catalog &amp; Runway Control</h2>
-            </div>
-            <div class="adm-topbar-actions">
-              <button type="button" id="admin-save-all" class="adm-btn-gold">Save All Changes</button>
-              <button type="button" id="admin-reset-all" class="adm-btn-danger-outline">Reset to Default</button>
-              <button type="button" id="admin-close-only" class="adm-btn-secondary">Preview Store</button>
-              <button type="button" id="admin-lock-close" class="admin-close-btn" aria-label="Lock and close Admin Panel">×</button>
-            </div>
-          </header>
+          <div class="adm-sticky-header">
+            <header class="adm-topbar">
+              <div class="adm-topbar-left">
+                <span class="adm-eyebrow">GR SON'S · Seller Admin Workspace</span>
+                <h2 id="admin-dashboard-title">Atelier Catalog, Orders &amp; Analytics</h2>
+              </div>
+              <div class="adm-topbar-actions">
+                <button type="button" id="admin-save-all" class="adm-btn-gold">Save All Changes</button>
+                <button type="button" id="admin-reset-all" class="adm-btn-danger-outline">Reset to Default</button>
+                <button type="button" id="admin-close-only" class="adm-btn-secondary">← Exit to Storefront</button>
+                <button type="button" id="admin-lock-close" class="admin-close-btn" title="Lock PIN & Exit" aria-label="Lock and exit Admin Workspace">×</button>
+              </div>
+            </header>
 
-          <div id="admin-status-bar" class="adm-status-bar" role="status" aria-live="polite">
-            100% Free Local Store Manager · Click Save All Changes to persist
+            <div id="admin-status-bar" class="adm-status-bar" role="status" aria-live="polite">
+              100% Free Local Store Manager · Click Save All Changes to persist
+            </div>
+
+            <nav class="adm-tabs" role="tablist" aria-label="Store Owner Management Tabs">
+              <button type="button" class="adm-tab" data-admin-tab="products" role="tab" aria-selected="true">
+                1. Products &amp; Prices (PKR)
+              </button>
+              <button type="button" class="adm-tab" data-admin-tab="banner" role="tab" aria-selected="false">
+                2. Main Hero Banner
+              </button>
+              <button type="button" class="adm-tab" data-admin-tab="runway" role="tab" aria-selected="false">
+                3. 3D Runway &amp; 'In This Look'
+              </button>
+              <button type="button" class="adm-tab" data-admin-tab="sync" role="tab" aria-selected="false">
+                4. Cloud Sync &amp; Showroom
+              </button>
+              <button type="button" class="adm-tab" data-admin-tab="orders" role="tab" aria-selected="false">
+                5. Orders &amp; Sales <span class="adm-tab-badge" data-admin-pending-count hidden>0</span>
+              </button>
+            </nav>
           </div>
 
-          <nav class="adm-tabs" role="tablist" aria-label="Store Owner Management Tabs">
-            <button type="button" class="adm-tab" data-admin-tab="products" role="tab" aria-selected="true">
-              1. Products &amp; Prices (PKR)
-            </button>
-            <button type="button" class="adm-tab" data-admin-tab="banner" role="tab" aria-selected="false">
-              2. Main Hero Banner
-            </button>
-            <button type="button" class="adm-tab" data-admin-tab="runway" role="tab" aria-selected="false">
-              3. 3D Runway &amp; 'In This Look'
-            </button>
-            <button type="button" class="adm-tab" data-admin-tab="sync" role="tab" aria-selected="false">
-              4. Cloud Sync &amp; Showroom
-            </button>
-          </nav>
-
-          <div id="admin-dashboard-body" class="adm-body"></div>
+          <div class="adm-workspace-container">
+            <div id="admin-dashboard-body" class="adm-body"></div>
+          </div>
         </div>
-      </dialog>
+      </section>
+
+      <a
+        id="floating-whatsapp-btn"
+        class="floating-wa-btn"
+        href="https://wa.me/923001234567?text=Assalam-o-Alaikum%20GR%20SON%27S%20Atelier%2C%20I%20would%20like%20assistance%20with%20an%20order."
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Chat with GR SON'S Concierge on WhatsApp"
+      >
+        <span class="floating-wa-icon" aria-hidden="true">
+          <svg class="wa-official-svg" width="22" height="22" viewBox="0 0 32 32">
+            <path fill="#25D366" d="M16 3C8.82 3 3 8.82 3 16c0 2.47.7 4.78 1.9 6.75L3.6 28.4l5.8-1.52A12.93 12.93 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" />
+            <path fill="#ffffff" d="M23.02 19.65c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.93-2.25-.25-.6-.5-.52-.68-.53h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35z" />
+          </svg>
+        </span>
+        <span class="floating-wa-copy">
+          <small>Bespoke Desk</small>
+          <strong>WhatsApp Concierge</strong>
+        </span>
+      </a>
 
       <div id="bag-status" role="status" aria-live="polite"></div>
     </div>
