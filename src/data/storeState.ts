@@ -13,6 +13,7 @@ import {
   DEFAULT_SIZE_GUIDE,
   DEFAULT_STORE_CATEGORIES,
   DEFAULT_STORE_WHATSAPP,
+  FittingAppointment,
   HeroBannerConfig,
   HeroSlideConfig,
   LookPieceRef,
@@ -35,6 +36,7 @@ export interface StoreSnapshot {
   showroom?: ShowroomConfig;
   sizeGuide?: SizeGuideConfig;
   orders?: StoreOrder[];
+  fittings?: FittingAppointment[];
   storeWhatsapp?: string;
   adminPin?: string;
   showInThisLookGlobal?: boolean;
@@ -735,6 +737,8 @@ class StoreStateManager {
   private sizeGuide: SizeGuideConfig = cloneDeep(DEFAULT_SIZE_GUIDE);
   private orders: StoreOrder[] = [];
   private deletedOrderIds = new Set<string>();
+  private fittings: FittingAppointment[] = [];
+  private deletedFittingIds = new Set<string>();
   private storeWhatsapp: string = DEFAULT_STORE_WHATSAPP;
   private cloudSync: CloudSyncConfig = cloneDeep(DEFAULT_CLOUD_SYNC);
   private adminPin: string = DEFAULT_PIN;
@@ -869,6 +873,12 @@ class StoreStateManager {
       );
       this.orders = this.mergeOrderLists(this.orders, incoming);
     }
+    if (Array.isArray(saved.fittings)) {
+      const incomingFittings = saved.fittings.filter(
+        (f) => !this.deletedFittingIds.has(f.id) && !this.deletedFittingIds.has(f.refCode)
+      );
+      this.fittings = this.mergeFittingLists(this.fittings, incomingFittings);
+    }
     if (typeof saved.adminPin === 'string' && /^\d{4,6}$/.test(saved.adminPin.trim())) {
       this.adminPin = saved.adminPin.trim();
       try {
@@ -941,6 +951,37 @@ class StoreStateManager {
       }
     }
     return Array.from(byNum.values())
+      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
+      .slice(0, 120);
+  }
+
+  private normalizeFitting(raw: Partial<FittingAppointment>): FittingAppointment | null {
+    if (!raw || typeof raw.refCode !== 'string' || !raw.refCode.trim()) return null;
+    const createdAt =
+      typeof raw.createdAt === 'string' && !Number.isNaN(Date.parse(raw.createdAt))
+        ? raw.createdAt
+        : new Date().toISOString();
+    return {
+      id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : raw.refCode.trim(),
+      refCode: raw.refCode.trim(),
+      customerName: String(raw.customerName || 'Atelier Client'),
+      phone: String(raw.phone || ''),
+      preferredDate: String(raw.preferredDate || ''),
+      garmentFocus: String(raw.garmentFocus || 'Bespoke Fitting'),
+      createdAt,
+    };
+  }
+
+  private mergeFittingLists(
+    existing: FittingAppointment[],
+    incoming: FittingAppointment[]
+  ): FittingAppointment[] {
+    const byKey = new Map<string, FittingAppointment>();
+    for (const raw of [...existing, ...incoming]) {
+      const norm = this.normalizeFitting(raw);
+      if (norm) byKey.set(norm.refCode, norm);
+    }
+    return Array.from(byKey.values())
       .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
       .slice(0, 120);
   }
@@ -1023,9 +1064,23 @@ class StoreStateManager {
         const mergedLocal = this.buildPublicSnapshot();
         await idbSetSnapshot(mergedLocal);
         this.emit();
-      } else if (Array.isArray(remote.orders) && remote.orders.length > 0) {
-        this.orders = this.mergeOrderLists(this.orders, remote.orders);
-        this.emit();
+      } else {
+        let changed = false;
+        if (Array.isArray(remote.orders) && remote.orders.length > 0) {
+          const incomingOrders = remote.orders.filter(
+            (o) => !this.deletedOrderIds.has(o.id) && !this.deletedOrderIds.has(o.orderNumber)
+          );
+          this.orders = this.mergeOrderLists(this.orders, incomingOrders);
+          changed = true;
+        }
+        if (Array.isArray(remote.fittings) && remote.fittings.length > 0) {
+          const incomingFittings = remote.fittings.filter(
+            (f) => !this.deletedFittingIds.has(f.id) && !this.deletedFittingIds.has(f.refCode)
+          );
+          this.fittings = this.mergeFittingLists(this.fittings, incomingFittings);
+          changed = true;
+        }
+        if (changed) this.emit();
       }
     }
   }
@@ -1453,6 +1508,63 @@ class StoreStateManager {
     this.emit();
   }
 
+  public getFittings(): FittingAppointment[] {
+    return this.fittings;
+  }
+
+  public async bookFitting(input: {
+    customerName: string;
+    phone: string;
+    preferredDate: string;
+    garmentFocus: string;
+  }): Promise<FittingAppointment> {
+    const now = new Date().toISOString();
+    const refCode = `GRS-${Math.floor(1000 + Math.random() * 9000)}`;
+    const appointment: FittingAppointment = {
+      id: `fit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      refCode,
+      customerName: input.customerName.trim(),
+      phone: input.phone.trim(),
+      preferredDate: input.preferredDate.trim(),
+      garmentFocus: input.garmentFocus.trim() || 'Bespoke Fitting',
+      createdAt: now,
+    };
+
+    // Pull latest remote snapshot first so concurrent orders/fittings are preserved
+    const endpoint = this.cloudSync.endpointUrl.trim();
+    if (endpoint) {
+      const remote = await this.fetchRemoteSnapshot(endpoint, this.cloudSync.apiKey);
+      if (remote) {
+        if (Array.isArray(remote.orders)) {
+          const incomingOrders = remote.orders.filter(
+            (o) => !this.deletedOrderIds.has(o.id) && !this.deletedOrderIds.has(o.orderNumber)
+          );
+          this.orders = this.mergeOrderLists(this.orders, incomingOrders);
+        }
+        if (Array.isArray(remote.fittings)) {
+          const incomingFittings = remote.fittings.filter(
+            (f) => !this.deletedFittingIds.has(f.id) && !this.deletedFittingIds.has(f.refCode)
+          );
+          this.fittings = this.mergeFittingLists(this.fittings, incomingFittings);
+        }
+      }
+    }
+
+    this.fittings = [appointment, ...this.fittings].slice(0, 120);
+    await this.saveAllChanges(true);
+    return appointment;
+  }
+
+  public async deleteFitting(fittingId: string): Promise<void> {
+    const target = this.fittings.find((f) => f.id === fittingId || f.refCode === fittingId);
+    if (!target) return;
+    this.deletedFittingIds.add(target.id);
+    this.deletedFittingIds.add(target.refCode);
+    this.fittings = this.fittings.filter((f) => f.id !== target.id && f.refCode !== target.refCode);
+    this.emit();
+    await this.saveAllChanges(true);
+  }
+
   public buildPublicSnapshot(): StoreSnapshot {
     return {
       categories: cloneDeep(this.categories),
@@ -1462,6 +1574,7 @@ class StoreStateManager {
       showroom: cloneDeep(this.showroom),
       sizeGuide: cloneDeep(this.sizeGuide),
       orders: cloneDeep(this.orders),
+      fittings: cloneDeep(this.fittings),
       storeWhatsapp: this.storeWhatsapp,
       adminPin: this.adminPin,
       showInThisLookGlobal: this.showInThisLookGlobal,
@@ -1581,6 +1694,7 @@ class StoreStateManager {
     this.showroom = cloneDeep(DEFAULT_SHOWROOM);
     this.sizeGuide = cloneDeep(DEFAULT_SIZE_GUIDE);
     this.orders = [];
+    this.fittings = [];
     this.storeWhatsapp = DEFAULT_STORE_WHATSAPP;
     this.adminPin = DEFAULT_PIN;
     this.showInThisLookGlobal = true;

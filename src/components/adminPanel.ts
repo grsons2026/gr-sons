@@ -2,6 +2,7 @@ import {
   CategorySizePreset,
   DEFAULT_HERO_BANNER,
   DEFAULT_SHOWROOM,
+  FittingAppointment,
   OrderStatus,
   StoreCategory,
   StoreOrder,
@@ -45,6 +46,7 @@ export class AdminPanel {
   private pendingDeleteIds = new Set<string>();
   private pendingDeleteCatIds = new Set<string>();
   private pendingDeleteOrderIds = new Set<string>();
+  private pendingDeleteFittingIds = new Set<string>();
   private suppressNextStoreRender = false;
   private statusNotice = '';
   private statusNoticeTimer: number | null = null;
@@ -83,8 +85,7 @@ export class AdminPanel {
         window.clearTimeout(this.logoTapResetTimer);
       }
       if (this.logoTapCount >= 5) {
-        this.logoTapCount = 0;
-        this.logoTapResetTimer = null;
+        this.resetLogoTapCounter();
         this.openEntry();
         return;
       }
@@ -94,7 +95,7 @@ export class AdminPanel {
       this.logoTapResetTimer = window.setTimeout(() => {
         this.logoTapCount = 0;
         this.logoTapResetTimer = null;
-      }, 2400);
+      }, 2600);
     });
 
     // Secret Owner Trigger 2: Visiting URL with #admin hash
@@ -172,13 +173,29 @@ export class AdminPanel {
     }
   }
 
+  private resetLogoTapCounter(): void {
+    this.logoTapCount = 0;
+    if (this.logoTapResetTimer !== null) {
+      window.clearTimeout(this.logoTapResetTimer);
+      this.logoTapResetTimer = null;
+    }
+  }
+
   private isDashboardOpen(): boolean {
-    return Boolean(this.dashboardDialog && this.dashboardDialog.isConnected && !this.dashboardDialog.hidden);
+    return Boolean(
+      this.dashboardDialog &&
+        this.dashboardDialog.isConnected &&
+        !this.dashboardDialog.hidden &&
+        !this.dashboardDialog.hasAttribute('hidden')
+    );
   }
 
   private closeDashboard(): void {
+    this.unlocked = false;
+    this.resetLogoTapCounter();
     if (!this.dashboardDialog) return;
     this.dashboardDialog.hidden = true;
+    this.dashboardDialog.setAttribute('hidden', '');
     this.dashboardDialog.remove();
     document.documentElement.classList.remove('admin-open');
   }
@@ -214,6 +231,8 @@ export class AdminPanel {
       if (!this.pinDialog.isConnected) {
         document.body.appendChild(this.pinDialog);
       }
+      this.pinDialog.hidden = false;
+      this.pinDialog.removeAttribute('hidden');
       if (!this.pinDialog.open) {
         this.pinDialog.showModal();
         window.setTimeout(() => this.pinInput?.focus(), 40);
@@ -232,21 +251,33 @@ export class AdminPanel {
     }
     if (this.pinError) this.pinError.textContent = '';
     this.unlocked = true;
-    this.pinDialog?.close();
+    this.resetLogoTapCounter();
+    if (this.pinDialog?.open) {
+      this.pinDialog.close();
+    }
+    this.pinDialog?.remove();
     this.openDashboard();
   }
 
   private openDashboard(): void {
-    if (this.dashboardDialog && !this.dashboardDialog.isConnected) {
+    if (!this.dashboardDialog) return;
+    if (!this.dashboardDialog.isConnected) {
       document.body.appendChild(this.dashboardDialog);
     }
+    this.dashboardDialog.hidden = false;
+    this.dashboardDialog.removeAttribute('hidden');
+    document.documentElement.classList.add('admin-open');
     this.syncTabButtons();
-    this.renderActiveTab();
-    if (this.dashboardDialog) {
-      this.dashboardDialog.hidden = false;
-      document.documentElement.classList.add('admin-open');
-      this.dashboardDialog.scrollTop = 0;
+    try {
+      this.renderActiveTab();
+    } catch (err) {
+      console.error('Admin Dashboard tab render error:', err);
+      if (this.dashboardBody) {
+        this.dashboardBody.innerHTML = `<div class="adm-card"><p class="adm-help">Dashboard view encountered an error while rendering. Switch tabs or click Reset to Default.</p></div>`;
+      }
     }
+    this.dashboardDialog.scrollTop = 0;
+    this.dashboardDialog.scrollTo?.(0, 0);
   }
 
   private syncTabButtons(): void {
@@ -2245,6 +2276,19 @@ export class AdminPanel {
     return `https://wa.me/${custDigits}?text=${encodeURIComponent(msg)}`;
   }
 
+  private buildFittingClientWhatsappHref(fitting: FittingAppointment): string {
+    const custDigits = sanitizeWhatsappDigits(fitting.phone, '');
+    if (!custDigits) return '#';
+    const sr = storeState.getShowroom();
+    const msg = [
+      `Assalam-o-Alaikum ${fitting.customerName},`,
+      `Your Private Bespoke Fitting (*${fitting.refCode}*) at *${sr.storeName}* is confirmed for *${fitting.preferredDate}*.`,
+      `Garment Focus: ${fitting.garmentFocus}`,
+      `Location: ${sr.address}`,
+    ].join('\n');
+    return `https://wa.me/${custDigits}?text=${encodeURIComponent(msg)}`;
+  }
+
   private formatCompactPkr(amount: number): string {
     if (amount <= 0) return '0';
     if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
@@ -2598,6 +2642,79 @@ export class AdminPanel {
           </div>
         `;
 
+    const allFittings = storeState.getFittings();
+    const fittingsHtml =
+      allFittings.length > 0
+        ? allFittings
+            .map((fit) => {
+              const dtStr = new Date(fit.createdAt).toLocaleString('en-PK', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              });
+              const clientWaHref = this.buildFittingClientWhatsappHref(fit);
+              const isConfirmDel = this.pendingDeleteFittingIds.has(fit.id);
+              return `
+                <article class="adm-order-card" data-fitting-id="${escapeHtml(fit.id)}">
+                  <div class="adm-order-top">
+                    <div class="adm-order-id-wrap">
+                      <span class="adm-order-num">${escapeHtml(fit.refCode)}</span>
+                      <span class="adm-order-date">Booked ${escapeHtml(dtStr)}</span>
+                    </div>
+                    <div class="adm-order-top-right">
+                      <span class="adm-order-badge is-dispatched">Preferred Date: ${escapeHtml(fit.preferredDate)}</span>
+                      <button
+                        type="button"
+                        class="adm-order-del-btn${isConfirmDel ? ' is-confirming' : ''}"
+                        data-adm-fitting-del="${escapeHtml(fit.id)}"
+                        title="${isConfirmDel ? 'Click again to delete appointment' : 'Delete fitting appointment'}"
+                        aria-label="Delete fitting ${escapeHtml(fit.refCode)}"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                          <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v6M14 10v6" />
+                        </svg>
+                        <span>${isConfirmDel ? 'Confirm?' : 'Delete'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="adm-order-customer">
+                    <div>
+                      <strong>${escapeHtml(fit.customerName)}</strong>
+                      <span>${escapeHtml(fit.phone)}</span>
+                    </div>
+                    <p><strong>Garment Focus:</strong> ${escapeHtml(fit.garmentFocus)}</p>
+                  </div>
+
+                  <div class="adm-order-footer">
+                    <div class="adm-order-total-block">
+                      <small>Private Showroom Session</small>
+                      <strong>${escapeHtml(fit.preferredDate)}</strong>
+                    </div>
+                    <div class="adm-order-actions">
+                      ${
+                        clientWaHref !== '#'
+                          ? `<a class="adm-wa-customer-btn" href="${escapeHtml(clientWaHref)}" target="_blank" rel="noopener noreferrer">
+                              <svg class="wa-official-svg" width="15" height="15" viewBox="0 0 32 32" aria-hidden="true">
+                                <path fill="#25D366" d="M16 3C8.82 3 3 8.82 3 16c0 2.47.7 4.78 1.9 6.75L3.6 28.4l5.8-1.52A12.93 12.93 0 0 0 16 29c7.18 0 13-5.82 13-13S23.18 3 16 3z" />
+                                <path fill="#ffffff" d="M23.02 19.65c-.3-.15-1.78-.88-2.06-.98-.28-.1-.48-.15-.68.15-.2.3-.78.98-.95 1.18-.18.2-.35.23-.65.08-.3-.15-1.27-.47-2.42-1.5-.9-.8-1.5-1.78-1.68-2.08-.18-.3-.02-.46.13-.61.14-.14.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.68-1.64-.93-2.25-.25-.6-.5-.52-.68-.53h-.58c-.2 0-.53.08-.8.38-.28.3-1.05 1.03-1.05 2.5s1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.73 2.03-1.43.25-.7.25-1.3.18-1.43-.08-.13-.28-.2-.58-.35z" />
+                              </svg>
+                              <span>WhatsApp Client</span>
+                            </a>`
+                          : ''
+                      }
+                    </div>
+                  </div>
+                </article>
+              `;
+            })
+            .join('')
+        : `
+          <div class="adm-orders-empty">
+            <strong>No Showroom Fitting Appointments booked yet.</strong>
+            <p>When clients submit "Book Custom Fitting" from the storefront or Gujranwala Showroom section, appointments appear here and sync automatically to JSONBin Cloud.</p>
+          </div>
+        `;
+
     this.dashboardBody.innerHTML = `
       <div class="adm-section">
         <div class="adm-card">
@@ -2715,6 +2832,17 @@ export class AdminPanel {
           </div>
 
           <div class="adm-orders-list">${ordersHtml}</div>
+        </div>
+
+        <div class="adm-card">
+          <div class="adm-card-head">
+            <div>
+              <span class="adm-eyebrow">Gujranwala Flagship Bespoke Desk · JSONBin Cloud Synced</span>
+              <h3>Showroom Fitting Appointments (${allFittings.length})</h3>
+            </div>
+          </div>
+
+          <div class="adm-orders-list">${fittingsHtml}</div>
         </div>
       </div>
     `;
@@ -2838,6 +2966,28 @@ export class AdminPanel {
         btn.disabled = true;
         await storeState.deleteOrder(orderId);
         this.showStatus('Order removed & synced cleanly to JSONBin Cloud.');
+      });
+    });
+
+    // Delete fitting appointment button (2-click safe confirm + cloud sync)
+    this.dashboardBody.querySelectorAll<HTMLButtonElement>('[data-adm-fitting-del]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const fittingId = btn.dataset.admFittingDel;
+        if (!fittingId) return;
+        if (!this.pendingDeleteFittingIds.has(fittingId)) {
+          this.pendingDeleteFittingIds.add(fittingId);
+          this.renderOrdersTab();
+          window.setTimeout(() => {
+            if (this.pendingDeleteFittingIds.delete(fittingId) && this.activeTab === 'orders') {
+              this.renderOrdersTab();
+            }
+          }, 4000);
+          return;
+        }
+        this.pendingDeleteFittingIds.delete(fittingId);
+        btn.disabled = true;
+        await storeState.deleteFitting(fittingId);
+        this.showStatus('Fitting appointment removed & synced to JSONBin Cloud.');
       });
     });
   }

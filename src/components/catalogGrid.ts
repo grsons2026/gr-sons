@@ -41,6 +41,13 @@ export class CatalogGrid {
   private gridSearchEl: HTMLInputElement | null = null;
   private gridClearEl: HTMLButtonElement | null = null;
   private wishlistFilterBtn: HTMLButtonElement | null = null;
+  private dragStartX = 0;
+  private dragStartY = 0;
+  private dragMaxDist = 0;
+  private dragPointerDown = false;
+  private dragRowEl: HTMLElement | null = null;
+  private dragStartScrollLeft = 0;
+  private suppressClickUntil = 0;
 
   constructor(bag: StylingBag, quickView: QuickViewModal) {
     this.bag = bag;
@@ -166,7 +173,52 @@ export class CatalogGrid {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
-    (this.stageEl || this.gridEl)?.addEventListener('click', (e) => this.handleGridClick(e));
+    const clickSurface = this.stageEl || this.gridEl;
+    if (clickSurface) {
+      clickSurface.addEventListener('pointerdown', (e) => {
+        const pe = e as PointerEvent;
+        this.dragPointerDown = true;
+        this.dragStartX = pe.clientX;
+        this.dragStartY = pe.clientY;
+        this.dragMaxDist = 0;
+        if (pe.pointerType === 'mouse' && pe.button === 0) {
+          const row = (pe.target as HTMLElement | null)?.closest<HTMLElement>(
+            '.catalog-grid--mobile-row'
+          );
+          this.dragRowEl = row ?? null;
+          this.dragStartScrollLeft = row ? row.scrollLeft : 0;
+        } else {
+          this.dragRowEl = null;
+        }
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (!this.dragPointerDown) return;
+        const pe = e as PointerEvent;
+        const dx = pe.clientX - this.dragStartX;
+        const dy = pe.clientY - this.dragStartY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > this.dragMaxDist) {
+          this.dragMaxDist = dist;
+        }
+        if (this.dragRowEl && Math.abs(dx) >= 10) {
+          this.dragRowEl.scrollLeft = this.dragStartScrollLeft - dx;
+        }
+      });
+
+      const endDrag = () => {
+        if (!this.dragPointerDown) return;
+        if (this.dragMaxDist >= 10) {
+          this.suppressClickUntil = performance.now() + 260;
+        }
+        this.dragPointerDown = false;
+        this.dragRowEl = null;
+      };
+
+      window.addEventListener('pointerup', endDrag);
+      window.addEventListener('pointercancel', endDrag);
+      clickSurface.addEventListener('click', (e) => this.handleGridClick(e));
+    }
     storeState.subscribe(() => this.render());
     this.syncWishlistUi();
     this.render();
@@ -433,32 +485,17 @@ export class CatalogGrid {
     const target = e.target as HTMLElement | null;
     if (!target) return;
 
+    const isPointerClick = e instanceof MouseEvent && e.detail > 0;
+    if (isPointerClick && performance.now() < this.suppressClickUntil) {
+      return;
+    }
+
     const wishBtn = target.closest<HTMLButtonElement>('[data-catalog-wish]');
     if (wishBtn) {
       const productId = wishBtn.dataset.catalogWish;
       if (productId) {
         this.toggleWishlist(productId);
       }
-      return;
-    }
-
-    const qvBtn = target.closest<HTMLElement>('[data-catalog-qv]');
-    if (qvBtn) {
-      const productId = qvBtn.dataset.catalogQv;
-      if (!productId) return;
-      const card = qvBtn.closest<HTMLElement>('[data-catalog-card]');
-      const item = storeState.getProductById(productId);
-      const selectedSize = card?.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value;
-      const variant = item?.variants.find((v) => v.a && v.o[0] === selectedSize);
-      this.quickView.open(
-        {
-          productId,
-          lookLabel: item?.type,
-          selectedVariantId: variant?.id,
-          cardEl: card,
-        },
-        qvBtn
-      );
       return;
     }
 
@@ -489,6 +526,30 @@ export class CatalogGrid {
           addBtn.textContent = 'Add to bag';
         }
       }, 1500);
+      return;
     }
+
+    // Ignore clicks on inline size selector pills
+    if (target.closest('.catalog-sizes, .catalog-size-pill, input[type="radio"], label')) {
+      return;
+    }
+
+    const qvBtn = target.closest<HTMLElement>('[data-catalog-qv]');
+    const card = target.closest<HTMLElement>('[data-catalog-card]');
+    const productId = qvBtn?.dataset.catalogQv || card?.dataset.productId;
+    if (!productId) return;
+
+    const item = storeState.getProductById(productId);
+    const selectedSize = card?.querySelector<HTMLInputElement>('input[type="radio"]:checked')?.value;
+    const variant = item?.variants.find((v) => v.a && v.o[0] === selectedSize);
+    this.quickView.open(
+      {
+        productId,
+        lookLabel: item?.type,
+        selectedVariantId: variant?.id,
+        cardEl: card,
+      },
+      qvBtn || card
+    );
   }
 }

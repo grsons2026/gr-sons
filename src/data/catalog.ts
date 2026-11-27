@@ -187,6 +187,16 @@ export interface StoreOrder {
   updatedAt?: string;
 }
 
+export interface FittingAppointment {
+  id: string;
+  refCode: string;
+  customerName: string;
+  phone: string;
+  preferredDate: string;
+  garmentFocus: string;
+  createdAt: string;
+}
+
 export const DEFAULT_STORE_WHATSAPP = '923001234567';
 export const DEFAULT_ADMIN_PIN = '1234';
 

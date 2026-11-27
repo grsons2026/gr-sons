@@ -67,7 +67,7 @@ export class ShowroomAndEditorial {
 
     this.fittingForm?.addEventListener('submit', (e) => {
       e.preventDefault();
-      this.handleFittingSubmit();
+      void this.handleFittingSubmit();
     });
 
     // Order Tracking Modal triggers (header + footer)
@@ -272,6 +272,8 @@ export class ShowroomAndEditorial {
     if (this.fittingForm) this.fittingForm.hidden = false;
     if (this.fittingConfirm) this.fittingConfirm.hidden = true;
     if (this.fittingError) this.fittingError.textContent = '';
+    const waBtn = document.getElementById('fitting-whatsapp-btn') as HTMLAnchorElement | null;
+    if (waBtn) waBtn.hidden = true;
     if (!this.fittingDialog.isConnected) {
       document.body.appendChild(this.fittingDialog);
     }
@@ -280,11 +282,12 @@ export class ShowroomAndEditorial {
     }
   }
 
-  private handleFittingSubmit(): void {
+  private async handleFittingSubmit(): Promise<void> {
     const nameEl = document.getElementById('fitting-name') as HTMLInputElement | null;
     const phoneEl = document.getElementById('fitting-phone') as HTMLInputElement | null;
     const dateEl = document.getElementById('fitting-date') as HTMLInputElement | null;
     const focusEl = document.getElementById('fitting-focus') as HTMLSelectElement | null;
+    const submitBtn = this.fittingForm?.querySelector<HTMLButtonElement>('button[type="submit"]') || null;
 
     const name = nameEl?.value.trim() || '';
     const phone = phoneEl?.value.trim() || '';
@@ -308,18 +311,62 @@ export class ShowroomAndEditorial {
     }
 
     if (this.fittingError) this.fittingError.textContent = '';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Reserving Fitting...';
+    }
+
+    let savedRef = `GRS-${Math.floor(1000 + Math.random() * 9000)}`;
+    try {
+      const saved = await storeState.bookFitting({
+        customerName: name,
+        phone,
+        preferredDate: dateVal,
+        garmentFocus: focus,
+      });
+      savedRef = saved.refCode;
+    } catch {
+      // keep confirmation responsive even if network is offline
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirm Fitting Appointment';
+      }
+    }
+
     if (this.fittingForm) this.fittingForm.hidden = true;
     if (this.fittingConfirm) this.fittingConfirm.hidden = false;
 
-    const refCode = `GRS-${Math.floor(1000 + Math.random() * 9000)}`;
     const titleEl = document.getElementById('fitting-confirm-title');
     const copyEl = document.getElementById('fitting-confirm-copy');
+    const waBtn = document.getElementById('fitting-whatsapp-btn') as HTMLAnchorElement | null;
     const sr = storeState.getShowroom();
     if (titleEl) {
-      titleEl.textContent = `Reservation ${refCode} Confirmed`;
+      titleEl.textContent = `Reservation ${savedRef} Confirmed`;
     }
     if (copyEl) {
       copyEl.textContent = `${name}, our master tailor will welcome you on ${dateVal} for "${focus}" at ${sr.address}. We will reconfirm shortly on ${phone}.`;
     }
+
+    if (waBtn) {
+      const waDigits = sanitizeWhatsappDigits(storeState.getStoreWhatsapp());
+      const waText = [
+        `Assalam-o-Alaikum GR SON'S Atelier,`,
+        `I have booked a Private Custom Fitting appointment:`,
+        `• Reference: ${savedRef}`,
+        `• Client: ${name}`,
+        `• Phone: ${phone}`,
+        `• Preferred Date: ${dateVal}`,
+        `• Garment Focus: ${focus}`,
+        `• Showroom: ${sr.storeName}, Gujranwala`,
+        ``,
+        `Please confirm my slot.`,
+      ].join('\n');
+      waBtn.href = `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}`;
+      waBtn.hidden = false;
+    }
+
+    if (nameEl) nameEl.value = '';
+    if (phoneEl) phoneEl.value = '';
   }
 }

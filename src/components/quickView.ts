@@ -535,7 +535,7 @@ export class QuickViewModal {
     const item = storeState.getProductById(ctx.productId);
     if (!item) return;
 
-    const wasClosed = this.pdpEl.hidden;
+    const wasClosed = !this.pdpEl.isConnected || this.pdpEl.hidden;
     if (wasClosed) {
       this.returnFocusEl = triggerEl || (document.activeElement as HTMLElement | null);
     }
@@ -546,18 +546,31 @@ export class QuickViewModal {
       this.resetBtnTimer = null;
     }
 
-    this.renderCurrentProduct(ctx, true);
-
     if (!this.pdpEl.isConnected) {
       document.body.appendChild(this.pdpEl);
     }
+    this.pdpEl.hidden = false;
+    this.pdpEl.removeAttribute('hidden');
+    document.documentElement.classList.add('pdp-open');
+
+    try {
+      this.renderCurrentProduct(ctx, true);
+    } catch (err) {
+      console.error('Failed to render PDP details:', err);
+    }
+
     this.pdpEl.querySelectorAll('[data-cart-count]').forEach((el) => {
       el.textContent = String(this.bag.getTotalCount());
     });
 
-    this.pdpEl.hidden = false;
-    document.documentElement.classList.add('pdp-open');
     this.pdpEl.scrollTop = 0;
+    this.pdpEl.scrollTo?.(0, 0);
+    window.requestAnimationFrame(() => {
+      if (this.pdpEl) {
+        this.pdpEl.scrollTop = 0;
+        this.pdpEl.scrollTo?.(0, 0);
+      }
+    });
 
     const backBtn = this.pdpEl.querySelector<HTMLElement>('[data-pdp-close]');
     if (wasClosed && backBtn) {
@@ -568,6 +581,7 @@ export class QuickViewModal {
   public close(): void {
     if (!this.pdpEl) return;
     this.pdpEl.hidden = true;
+    this.pdpEl.setAttribute('hidden', '');
     this.pdpEl.remove();
     document.documentElement.classList.remove('pdp-open');
     this.stageEl?.classList.remove('is-zooming', 'is-zoom-locked');
